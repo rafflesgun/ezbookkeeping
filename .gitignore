@@ -158,6 +158,7 @@ package/
 **/.env
 
 # Other directories
+.worktrees/
 data/
 storage/
 log/
