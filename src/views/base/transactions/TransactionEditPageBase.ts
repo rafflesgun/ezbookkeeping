@@ -24,6 +24,7 @@ import type { TransactionTag } from '@/models/transaction_tag.ts';
 import type { TransactionPictureInfoBasicResponse } from '@/models/transaction_picture_info.ts';
 import { Transaction } from '@/models/transaction.ts';
 import { TransactionTemplate } from '@/models/transaction_template.ts';
+import type { LocalizedCurrencyInfo } from '@/core/currency.ts';
 
 import {
     isArray,
@@ -70,9 +71,30 @@ export enum AfterSaveAction {
     StayWithCurrentTransaction = 'stayWithCurrentTransaction'
 }
 
+const recentExpenseForeignCurrenciesLocalStorageKey = 'ebk_recent_expense_foreign_currencies';
+
+function getRecentExpenseForeignCurrenciesFromLocalStorage(): string[] {
+    const storageData = localStorage.getItem(recentExpenseForeignCurrenciesLocalStorageKey) || '[]';
+
+    try {
+        const parsedData = JSON.parse(storageData);
+
+        return isArray(parsedData)
+            ? parsedData.filter(currency => typeof currency === 'string')
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+function setRecentExpenseForeignCurrenciesToLocalStorage(currencies: string[]): void {
+    localStorage.setItem(recentExpenseForeignCurrenciesLocalStorageKey, JSON.stringify(currencies));
+}
+
 export function useTransactionEditPageBase(type: TransactionEditPageType, initMode?: TransactionEditPageMode, transactionDefaultType?: number) {
     const {
         tt,
+        getAllCurrencies,
         getAllTimezones,
         getCurrentNumeralSystemType,
         getTimezoneDifferenceDisplayText,
@@ -103,6 +125,10 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     const uploadingPicture = ref<boolean>(false);
     const geoLocationStatus = ref<GeoLocationStatus | null>(null);
     const setGeoLocationByClickMap = ref<boolean>(false);
+    const expenseAmountInputMode = ref<'account' | 'foreign'>('account');
+    const expenseForeignCurrency = ref<string>('');
+    const expenseForeignAmount = ref<number>(0);
+    const recentExpenseForeignCurrencies = ref<string[]>(getRecentExpenseForeignCurrenciesFromLocalStorage().slice(0, 3));
 
     const transaction = ref<Transaction | TransactionTemplate>(createNewTransactionModel(transactionDefaultType));
 
@@ -126,6 +152,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     const allVisibleAccounts = computed<Account[]>(() => accountsStore.allVisiblePlainAccounts);
     const allAccountsMap = computed<Record<string, Account>>(() => accountsStore.allAccountsMap);
     const allVisibleCategorizedAccounts = computed<CategorizedAccountWithDisplayBalance[]>(() => getCategorizedAccountsWithDisplayBalance(allVisibleAccounts.value, showAccountBalance.value, customAccountCategoryOrder.value));
+    const allCurrencies = computed<LocalizedCurrencyInfo[]>(() => getAllCurrencies());
     const allCategories = computed<Record<number, TransactionCategory[]>>(() => transactionCategoriesStore.allTransactionCategories);
     const allCategoriesMap = computed<Record<string, TransactionCategory>>(() => transactionCategoriesStore.allTransactionCategoriesMap);
     const allTagsMap = computed<Record<string, TransactionTag>>(() => transactionTagsStore.allTransactionTagsMap);
@@ -212,14 +239,13 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     });
 
     const sourceAmountTitle = computed<string>(() => {
-        const sourceAccount = allAccountsMap.value[transaction.value.sourceAccountId];
         const amountName = tt(sourceAmountName.value);
 
-        if (!sourceAccount || sourceAccount.currency === defaultCurrency.value || !transaction.value.sourceAmount || transaction.value.hideAmount) {
+        if (!currentSourceAccount.value || currentSourceAccount.value.currency === defaultCurrency.value || !transaction.value.sourceAmount || transaction.value.hideAmount) {
             return amountName;
         }
 
-        const fromExchangeRate = exchangeRatesStore.latestExchangeRateMap[sourceAccount.currency];
+        const fromExchangeRate = exchangeRatesStore.latestExchangeRateMap[currentSourceAccount.value.currency];
         const toExchangeRate = exchangeRatesStore.latestExchangeRateMap[defaultCurrency.value];
 
         if (!fromExchangeRate || !fromExchangeRate.rate || !toExchangeRate || !toExchangeRate.rate) {
@@ -284,13 +310,92 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     });
 
     const sourceAccountCurrency = computed<string>(() => {
-        const sourceAccount = allAccountsMap.value[transaction.value.sourceAccountId];
-
-        if (sourceAccount) {
-            return sourceAccount.currency;
+        if (currentSourceAccount.value) {
+            return currentSourceAccount.value.currency;
         }
 
         return defaultCurrency.value;
+    });
+
+    const currentSourceAccount = computed<Account | undefined>(() => allAccountsMap.value[transaction.value.sourceAccountId]);
+    const selectableExpenseForeignCurrencies = computed<LocalizedCurrencyInfo[]>(() => {
+        const currenciesByCode: Record<string, LocalizedCurrencyInfo> = {};
+
+        for (const currency of allCurrencies.value) {
+            if (currency.currencyCode !== sourceAccountCurrency.value) {
+                currenciesByCode[currency.currencyCode] = currency;
+            }
+        }
+
+        const recentCurrencies: LocalizedCurrencyInfo[] = [];
+        const orderedCurrencies: LocalizedCurrencyInfo[] = [];
+
+        for (const currencyCode of recentExpenseForeignCurrencies.value) {
+            const currency = currenciesByCode[currencyCode];
+
+            if (currency) {
+                recentCurrencies.push(currency);
+                delete currenciesByCode[currencyCode];
+            }
+        }
+
+        for (const currency of allCurrencies.value) {
+            if (currenciesByCode[currency.currencyCode]) {
+                orderedCurrencies.push(currency);
+            }
+        }
+
+        return recentCurrencies.concat(orderedCurrencies);
+    });
+    const expenseForeignAmountExchangeRateMissing = computed<boolean>(() => {
+        if (transaction.value.type !== TransactionType.Expense || expenseAmountInputMode.value !== 'foreign') {
+            return false;
+        }
+
+        if (!expenseForeignCurrency.value || !sourceAccountCurrency.value) {
+            return true;
+        }
+
+        return exchangeRatesStore.getExchangedAmount(1, expenseForeignCurrency.value, sourceAccountCurrency.value) === null;
+    });
+    const convertedExpenseSourceAmount = computed<number | null>(() => {
+        if (transaction.value.type !== TransactionType.Expense || expenseAmountInputMode.value !== 'foreign') {
+            return null;
+        }
+
+        const convertedAmount = exchangeRatesStore.getExchangedAmount(expenseForeignAmount.value, expenseForeignCurrency.value, sourceAccountCurrency.value);
+
+        if (convertedAmount === null) {
+            return null;
+        }
+
+        return Math.trunc(convertedAmount);
+    });
+    const shouldShowExpenseForeignAmountFields = computed<boolean>(() => {
+        return transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign';
+    });
+    const expenseAmountInputProblemMessage = computed<string | null>(() => {
+        if (expenseForeignAmountExchangeRateMissing.value) {
+            return 'Missing exchange rate data';
+        }
+
+        return null;
+    });
+    const editedExpenseAmount = computed<number>({
+        get: () => {
+            if (transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign') {
+                return expenseForeignAmount.value;
+            }
+
+            return transaction.value.sourceAmount;
+        },
+        set: (value: number) => {
+            if (transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign') {
+                expenseForeignAmount.value = value;
+            } else {
+                transaction.value.sourceAmount = value;
+            }
+        }
     });
 
     const destinationAccountCurrency = computed<string>(() => {
@@ -323,6 +428,12 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     });
 
     const inputEmptyProblemMessage = computed<string | null>(() => {
+        const expenseAmountProblemMessage = expenseAmountInputProblemMessage.value;
+
+        if (expenseAmountProblemMessage) {
+            return expenseAmountProblemMessage;
+        }
+
         if (transaction.value.type === TransactionType.Expense) {
             if (!transaction.value.expenseCategoryId || transaction.value.expenseCategoryId === '') {
                 return 'Transaction category cannot be blank';
@@ -392,6 +503,8 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     }
 
     function setTransactionModel(newTransaction: Transaction | null, options: SetTransactionOptions | undefined, setContextData: boolean): void {
+        resetExpenseForeignAmountState();
+
         setTransactionModelByTransaction(
             transaction.value,
             newTransaction,
@@ -414,6 +527,54 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             },
             setContextData
         );
+
+    }
+
+    function resetExpenseForeignAmountState(): void {
+        expenseAmountInputMode.value = 'account';
+        expenseForeignCurrency.value = '';
+        expenseForeignAmount.value = 0;
+    }
+
+    function rememberExpenseForeignCurrency(currency: string): void {
+        const newCurrencies = [currency]
+            .concat(recentExpenseForeignCurrencies.value.filter(item => item !== currency))
+            .slice(0, 3);
+
+        recentExpenseForeignCurrencies.value = newCurrencies;
+        setRecentExpenseForeignCurrenciesToLocalStorage(newCurrencies);
+    }
+
+    function tryEnableExpenseForeignAmount(currency: string, showMessage: ((message: string) => void) | undefined): boolean {
+        if (transaction.value.type !== TransactionType.Expense) {
+            resetExpenseForeignAmountState();
+            return false;
+        }
+
+        if (!currency || currency === sourceAccountCurrency.value) {
+            resetExpenseForeignAmountState();
+            return false;
+        }
+
+        if (exchangeRatesStore.getExchangedAmount(1, currency, sourceAccountCurrency.value) === null) {
+            showMessage?.('Missing exchange rate data');
+            resetExpenseForeignAmountState();
+            return false;
+        }
+
+        expenseAmountInputMode.value = 'foreign';
+        expenseForeignCurrency.value = currency;
+
+        const convertedAmount = exchangeRatesStore.getExchangedAmount(transaction.value.sourceAmount, sourceAccountCurrency.value, currency);
+        expenseForeignAmount.value = convertedAmount !== null ? convertedAmount : transaction.value.sourceAmount;
+
+        return true;
+    }
+
+    function finalizeExpenseForeignAmountSave(): void {
+        if (transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign' && expenseForeignCurrency.value) {
+            rememberExpenseForeignCurrency(expenseForeignCurrency.value);
+        }
     }
 
     function updateTransactionModelByAfterSaveAction(afterSaveAction: AfterSaveAction, initOptions?: SetTransactionOptions): void {
@@ -479,6 +640,44 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         transactionsStore.setTransactionSuitableDestinationAmount(transaction.value, oldValue, newValue);
     });
 
+    watch(() => transaction.value.type, (newType) => {
+        if (newType !== TransactionType.Expense) {
+            resetExpenseForeignAmountState();
+        }
+    });
+
+    watch(() => sourceAccountCurrency.value, (newCurrency) => {
+        if (expenseAmountInputMode.value !== 'foreign') {
+            return;
+        }
+
+        if (!expenseForeignCurrency.value || expenseForeignCurrency.value === newCurrency) {
+            resetExpenseForeignAmountState();
+        }
+    });
+
+    watch(() => expenseForeignCurrency.value, (newCurrency) => {
+        if (expenseAmountInputMode.value !== 'foreign') {
+            return;
+        }
+
+        if (!newCurrency || newCurrency === sourceAccountCurrency.value) {
+            resetExpenseForeignAmountState();
+        }
+    });
+
+    watch(() => convertedExpenseSourceAmount.value, (convertedAmount) => {
+        if (expenseAmountInputMode.value !== 'foreign' || transaction.value.type !== TransactionType.Expense) {
+            return;
+        }
+
+        if (convertedAmount !== null) {
+            transaction.value.sourceAmount = convertedAmount;
+        }
+    }, {
+        immediate: true
+    });
+
     watch(() => transaction.value.destinationAmount, (newValue) => {
         if (mode.value === TransactionEditPageMode.View || loading.value) {
             return;
@@ -524,6 +723,10 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         uploadingPicture,
         geoLocationStatus,
         setGeoLocationByClickMap,
+        expenseAmountInputMode,
+        expenseForeignCurrency,
+        expenseForeignAmount,
+        recentExpenseForeignCurrencies,
         transaction,
         // computed states
         numeralSystem,
@@ -538,6 +741,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         allVisibleAccounts,
         allAccountsMap,
         allVisibleCategorizedAccounts,
+        allCurrencies,
         allCategories,
         allCategoriesMap,
         allTagsMap,
@@ -557,6 +761,12 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         sourceAccountName,
         destinationAccountName,
         sourceAccountCurrency,
+        currentSourceAccount,
+        selectableExpenseForeignCurrencies,
+        convertedExpenseSourceAmount,
+        shouldShowExpenseForeignAmountFields,
+        expenseAmountInputProblemMessage,
+        editedExpenseAmount,
         destinationAccountCurrency,
         transactionDisplayTimezone,
         transactionTimezoneTimeDifference,
@@ -566,6 +776,10 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         // functions
         createNewTransactionModel,
         setTransactionModel,
+        resetExpenseForeignAmountState,
+        tryEnableExpenseForeignAmount,
+        rememberExpenseForeignCurrency,
+        finalizeExpenseForeignAmountSave,
         updateTransactionModelByAfterSaveAction,
         updateTransactionTime,
         updateTransactionTimezone,

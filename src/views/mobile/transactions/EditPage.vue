@@ -65,15 +65,36 @@
                 link="#" no-chevron
                 :class="sourceAmountClass"
                 :header="sourceAmountTitle"
-                :title="getDisplayAmount(transaction.sourceAmount, transaction.hideAmount, sourceAccountCurrency)"
                 @click="showSourceAmountSheet = true"
             >
+                <template #title>
+                    <f7-block class="list-item-custom-title no-padding no-margin" v-if="transaction.type === TransactionType.Expense">
+                        <span>{{ getDisplayAmount(editedExpenseAmount, transaction.hideAmount, expenseAmountDisplayCurrency) }}</span>
+                        <small class="smaller" @click.stop="openExpenseCurrencyPicker">{{ expenseAmountDisplayCurrency }}</small>
+                    </f7-block>
+                    <span v-else>{{ getDisplayAmount(transaction.sourceAmount, transaction.hideAmount, sourceAccountCurrency) }}</span>
+                </template>
+                <template #footer v-if="shouldShowExpenseForeignAmountFields && convertedExpenseSourceAmount !== null">
+                    <span>{{ getDisplayAmount(convertedExpenseSourceAmount, transaction.hideAmount, sourceAccountCurrency) }}</span>
+                </template>
                 <number-pad-sheet :min-value="TRANSACTION_MIN_AMOUNT"
                                   :max-value="TRANSACTION_MAX_AMOUNT"
-                                  :currency="sourceAccountCurrency"
+                                  :currency="expenseAmountDisplayCurrency"
                                   v-model:show="showSourceAmountSheet"
-                                  v-model="transaction.sourceAmount"
+                                  v-model="editedExpenseAmount"
                 ></number-pad-sheet>
+                <list-item-selection-popup value-type="item"
+                                           key-field="currencyCode" value-field="currencyCode"
+                                           title-field="displayName" after-field="currencyCode"
+                                           :title="tt('Currency')"
+                                           :enable-filter="true"
+                                           :filter-placeholder="tt('Currency')"
+                                           :filter-no-items-text="tt('No results')"
+                                           :items="selectableExpenseForeignCurrencies"
+                                           :model-value="expenseForeignCurrency"
+                                           v-model:show="showExpenseAmountCurrencyPopup"
+                                           @update:model-value="updateExpenseAmountCurrency">
+                </list-item-selection-popup>
             </f7-list-item>
 
             <f7-list-item
@@ -469,6 +490,18 @@
             </f7-actions-group>
         </f7-actions>
 
+        <f7-actions close-by-outside-click close-on-escape :opened="showExpenseAmountCurrencyActions" @actions:closed="showExpenseAmountCurrencyActions = false">
+            <f7-actions-group v-if="shouldShowExpenseForeignAmountFields">
+                <f7-actions-button @click="updateExpenseAmountCurrency(sourceAccountCurrency)">{{ sourceAccountCurrency }}</f7-actions-button>
+            </f7-actions-group>
+            <f7-actions-group>
+                <f7-actions-button @click="showExpenseAmountCurrencyActions = false; showExpenseAmountCurrencyPopup = true">{{ tt('Choose Foreign Currency') }}</f7-actions-button>
+            </f7-actions-group>
+            <f7-actions-group>
+                <f7-actions-button bold close>{{ tt('Cancel') }}</f7-actions-button>
+            </f7-actions-group>
+        </f7-actions>
+
         <template #fixed v-if="quickSaveButtonStyleType === TransactionQuickSaveButtonStyle.BottomLeftFloating.type || quickSaveButtonStyleType === TransactionQuickSaveButtonStyle.BottomCenterFloating.type || quickSaveButtonStyleType === TransactionQuickSaveButtonStyle.BottomRightFloating.type">
             <f7-fab id="quick-save-button" :class="{ 'disabled': inputIsEmpty || submitting }" :position="quickSaveButtonFloatingPosition"
                     :text="tt(quickSaveButtonTitle)"
@@ -611,6 +644,11 @@ const {
     sourceAccountName,
     destinationAccountName,
     sourceAccountCurrency,
+    expenseForeignCurrency,
+    selectableExpenseForeignCurrencies,
+    convertedExpenseSourceAmount,
+    shouldShowExpenseForeignAmountFields,
+    editedExpenseAmount,
     destinationAccountCurrency,
     transactionDisplayTimezone,
     transactionTimezoneTimeDifference,
@@ -618,6 +656,9 @@ const {
     inputEmptyProblemMessage,
     inputIsEmpty,
     setTransactionModel,
+    resetExpenseForeignAmountState,
+    tryEnableExpenseForeignAmount,
+    finalizeExpenseForeignAmountSave,
     updateTransactionModelByAfterSaveAction,
     updateTransactionTime,
     updateTransactionTimezone,
@@ -648,6 +689,8 @@ const showTimezonePopup = ref<boolean>(false);
 const showGeoLocationActionSheet = ref<boolean>(false);
 const showMoreActionSheet = ref<boolean>(false);
 const showSourceAmountSheet = ref<boolean>(false);
+const showExpenseAmountCurrencyActions = ref<boolean>(false);
+const showExpenseAmountCurrencyPopup = ref<boolean>(false);
 const showDestinationAmountSheet = ref<boolean>(false);
 const showCategorySheet = ref<boolean>(false);
 const showSourceAccountSheet = ref<boolean>(false);
@@ -663,6 +706,13 @@ const showTransactionPictures = ref<boolean>(pageTypeAndMode?.type === Transacti
     && settingsStore.appSettings.alwaysShowTransactionPicturesInMobileTransactionEditPage);
 
 const quickSaveButtonStyleType = computed<number>(() => settingsStore.appSettings.quickSaveButtonStyleInMobileTransactionListPage);
+const expenseAmountDisplayCurrency = computed<string>(() => {
+    if (transaction.value.type === TransactionType.Expense && shouldShowExpenseForeignAmountFields.value && expenseForeignCurrency.value) {
+        return expenseForeignCurrency.value;
+    }
+
+    return sourceAccountCurrency.value;
+});
 const quickSaveButtonFloatingPosition = computed<string>(() => {
     switch (settingsStore.appSettings.quickSaveButtonStyleInMobileTransactionListPage) {
         case TransactionQuickSaveButtonStyle.BottomLeftFloating.type:
@@ -1052,6 +1102,10 @@ function save(afterAction: AfterSaveAction): void {
                 submitted.value = true;
                 hideLoading();
 
+                if (transaction.value.type === TransactionType.Expense && shouldShowExpenseForeignAmountFields.value) {
+                    finalizeExpenseForeignAmountSave();
+                }
+
                 if (mode.value === TransactionEditPageMode.Add && query['noTransactionDraft'] !== 'true' && !addByTemplateId.value && !duplicateFromId.value) {
                     transactionsStore.clearTransactionDraft();
                 }
@@ -1138,6 +1192,33 @@ function save(afterAction: AfterSaveAction): void {
     }
 }
 
+function openExpenseCurrencyPicker(): void {
+    if (mode.value === TransactionEditPageMode.View || transaction.value.type !== TransactionType.Expense) {
+        return;
+    }
+
+    if (shouldShowExpenseForeignAmountFields.value) {
+        showExpenseAmountCurrencyActions.value = true;
+    } else {
+        showExpenseAmountCurrencyPopup.value = true;
+    }
+}
+
+function updateExpenseAmountCurrency(currency: string): void {
+    showExpenseAmountCurrencyActions.value = false;
+
+    if (transaction.value.type !== TransactionType.Expense) {
+        return;
+    }
+
+    if (!currency || currency === sourceAccountCurrency.value) {
+        resetExpenseForeignAmountState();
+        return;
+    }
+
+    tryEnableExpenseForeignAmount(currency, showToast);
+}
+
 function quickSave(): void {
     if (mode.value === TransactionEditPageMode.View) {
         return;
@@ -1184,7 +1265,11 @@ function pasteAmount(type: 'sourceAmount' | 'destinationAmount'): void {
         }
 
         if (type === 'sourceAmount') {
-            transaction.value.sourceAmount = parsedAmount;
+            if (transaction.value.type === TransactionType.Expense) {
+                editedExpenseAmount.value = parsedAmount;
+            } else {
+                transaction.value.sourceAmount = parsedAmount;
+            }
         } else if (type === 'destinationAmount') {
             transaction.value.destinationAmount = parsedAmount;
         }

@@ -97,7 +97,61 @@
                                     />
                                 </v-col>
                                 <v-col cols="12" :md="transaction.type === TransactionType.Transfer ? 6 : 12">
-                                    <amount-input class="transaction-edit-amount font-weight-bold"
+                                    <div v-if="transaction.type === TransactionType.Expense">
+                                        <div class="d-flex align-start ga-2">
+                                            <amount-input class="transaction-edit-amount font-weight-bold flex-grow-1"
+                                                          :color="sourceAmountColor"
+                                                          :currency="expenseAmountDisplayCurrency"
+                                                          :show-currency="true"
+                                                          :readonly="mode === TransactionEditPageMode.View"
+                                                          :disabled="loading || submitting"
+                                                          :persistent-placeholder="true"
+                                                          :hide="transaction.hideAmount"
+                                                          :label="sourceAmountTitle"
+                                                          :placeholder="tt(sourceAmountName)"
+                                                          :enable-formula="mode !== TransactionEditPageMode.View"
+                                                          v-model="editedExpenseAmount"/>
+
+                                            <v-btn variant="text"
+                                                   color="default"
+                                                   class="expense-currency-button px-2"
+                                                   :disabled="loading || submitting"
+                                                   v-if="mode !== TransactionEditPageMode.View">
+                                                <span class="text-body-2">{{ expenseAmountDisplayCurrency }}</span>
+                                                <v-icon size="18" class="ms-1" :icon="mdiMenuDown" />
+
+                                                <v-menu activator="parent" location="bottom end" max-height="420">
+                                                    <v-list>
+                                                        <v-list-item :title="sourceAccountCurrency"
+                                                                     :active="!shouldShowExpenseForeignAmountFields"
+                                                                     @click="updateExpenseAmountCurrency(sourceAccountCurrency)">
+                                                            <template #append>
+                                                                <v-icon :icon="mdiCheck" v-if="!shouldShowExpenseForeignAmountFields" />
+                                                            </template>
+                                                        </v-list-item>
+                                                        <v-divider v-if="selectableExpenseForeignCurrencies.length" />
+                                                        <v-list-item v-for="currency in selectableExpenseForeignCurrencies"
+                                                                     :key="currency.currencyCode"
+                                                                     :title="currency.displayName"
+                                                                     :subtitle="currency.currencyCode"
+                                                                     :active="expenseForeignCurrency === currency.currencyCode"
+                                                                     @click="updateExpenseAmountCurrency(currency.currencyCode)">
+                                                            <template #append>
+                                                                <v-icon :icon="mdiCheck" v-if="expenseForeignCurrency === currency.currencyCode" />
+                                                            </template>
+                                                        </v-list-item>
+                                                    </v-list>
+                                                </v-menu>
+                                            </v-btn>
+                                        </div>
+
+                                        <div class="text-body-2 text-medium-emphasis mt-1 ms-1"
+                                             v-if="shouldShowExpenseForeignAmountFields && convertedExpenseSourceAmount !== null">
+                                            {{ getDisplayAmount(convertedExpenseSourceAmount, transaction.hideAmount, sourceAccountCurrency) }}
+                                        </div>
+                                    </div>
+
+                                    <amount-input v-else class="transaction-edit-amount font-weight-bold"
                                                   :color="sourceAmountColor"
                                                   :currency="sourceAccountCurrency"
                                                   :show-currency="true"
@@ -605,6 +659,11 @@ const {
     destinationAccountName,
     sourceAccountCurrency,
     destinationAccountCurrency,
+    expenseForeignCurrency,
+    selectableExpenseForeignCurrencies,
+    convertedExpenseSourceAmount,
+    shouldShowExpenseForeignAmountFields,
+    editedExpenseAmount,
     transactionDisplayTimezone,
     transactionTimezoneTimeDifference,
     geoLocationStatusInfo,
@@ -616,6 +675,10 @@ const {
     updateTransactionTime,
     updateTransactionTimezone,
     swapTransactionData,
+    getDisplayAmount,
+    resetExpenseForeignAmountState,
+    tryEnableExpenseForeignAmount,
+    finalizeExpenseForeignAmountSave,
     getTransactionPictureUrl
 } = useTransactionEditPageBase(props.type);
 
@@ -654,6 +717,14 @@ const sourceAmountColor = computed<string | undefined>(() => {
     }
 
     return undefined;
+});
+
+const expenseAmountDisplayCurrency = computed<string>(() => {
+    if (transaction.value.type === TransactionType.Expense && shouldShowExpenseForeignAmountFields.value && expenseForeignCurrency.value) {
+        return expenseForeignCurrency.value;
+    }
+
+    return sourceAccountCurrency.value;
 });
 
 const isTransactionModified = computed<boolean>(() => {
@@ -829,6 +900,10 @@ function save(afterAction: AfterSaveAction): void {
             }).then(() => {
                 submitting.value = false;
                 submitted.value = true;
+
+                if (transaction.value.type === TransactionType.Expense && shouldShowExpenseForeignAmountFields.value) {
+                    finalizeExpenseForeignAmountSave();
+                }
 
                 if (mode.value === TransactionEditPageMode.Add && !noTransactionDraft.value && !addByTemplateId.value && !duplicateFromId.value) {
                     transactionsStore.clearTransactionDraft();
@@ -1145,6 +1220,19 @@ function viewOrRemovePicture(pictureInfo: TransactionPictureInfoBasicResponse): 
 
 function onSavingTag(state: boolean): void {
     submitting.value = state;
+}
+
+function updateExpenseAmountCurrency(currency: string): void {
+    if (transaction.value.type !== TransactionType.Expense) {
+        return;
+    }
+
+    if (!currency || currency === sourceAccountCurrency.value) {
+        resetExpenseForeignAmountState();
+        return;
+    }
+
+    tryEnableExpenseForeignAmount(currency, (message: string) => snackbar.value?.showMessage(message));
 }
 
 function onShowDateTimeError(error: string): void {
