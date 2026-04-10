@@ -71,6 +71,13 @@ export enum AfterSaveAction {
     StayWithCurrentTransaction = 'stayWithCurrentTransaction'
 }
 
+export interface ExpenseCurrencyPickerItem {
+    readonly currencyCode: string,
+    readonly displayName: string,
+    readonly secondaryText: string,
+    readonly disabled: boolean
+}
+
 const recentExpenseForeignCurrenciesLocalStorageKey = 'ebk_recent_expense_foreign_currencies';
 
 function getRecentExpenseForeignCurrenciesFromLocalStorage(): string[] {
@@ -99,6 +106,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         getCurrentNumeralSystemType,
         getTimezoneDifferenceDisplayText,
         formatAmountToLocalizedNumeralsWithCurrency,
+        formatExchangeRateAmountToWesternArabicNumerals,
         getAdaptiveAmountRate,
         getCategorizedAccountsWithDisplayBalance
     } = useI18n();
@@ -347,6 +355,40 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
 
         return recentCurrencies.concat(orderedCurrencies);
     });
+    const expenseCurrencyPickerItems = computed<ExpenseCurrencyPickerItem[]>(() => {
+        const sourceCurrency = sourceAccountCurrency.value;
+        const sourceExchangeRate = exchangeRatesStore.latestExchangeRateMap[sourceCurrency];
+        const sourceCurrencyInfo = allCurrencies.value.find(currency => currency.currencyCode === sourceCurrency);
+        const sourceCurrencyDisplayName = sourceCurrencyInfo?.displayName || sourceCurrency;
+        const items: ExpenseCurrencyPickerItem[] = [{
+            currencyCode: sourceCurrency,
+            displayName: sourceCurrencyDisplayName,
+            secondaryText: tt('Use account currency'),
+            disabled: false
+        }];
+
+        for (const currency of selectableExpenseForeignCurrencies.value) {
+            const foreignExchangeRate = exchangeRatesStore.latestExchangeRateMap[currency.currencyCode];
+            const convertedRate = sourceExchangeRate?.rate && foreignExchangeRate?.rate
+                ? getExchangedAmountByRate(1, foreignExchangeRate.rate, sourceExchangeRate.rate)
+                : null;
+            const hasExchangeRate = convertedRate !== null;
+            const displayRate = hasExchangeRate
+                ? formatExchangeRateAmountToWesternArabicNumerals(convertedRate)
+                : null;
+
+            items.push({
+                currencyCode: currency.currencyCode,
+                displayName: currency.displayName,
+                secondaryText: hasExchangeRate
+                    ? `${currency.currencyCode} • 1 ${currency.currencyCode} = ${displayRate} ${sourceCurrency}`
+                    : tt('No exchange rate data'),
+                disabled: !hasExchangeRate
+            });
+        }
+
+        return items;
+    });
     const expenseForeignAmountExchangeRateMissing = computed<boolean>(() => {
         if (transaction.value.type !== TransactionType.Expense || expenseAmountInputMode.value !== 'foreign') {
             return false;
@@ -373,6 +415,13 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     });
     const shouldShowExpenseForeignAmountFields = computed<boolean>(() => {
         return transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign';
+    });
+    const convertedExpenseSourceAmountHelperText = computed<string | null>(() => {
+        if (!shouldShowExpenseForeignAmountFields.value || convertedExpenseSourceAmount.value === null) {
+            return null;
+        }
+
+        return `${tt('Converted to')} ${sourceAccountCurrency.value}: ${getDisplayAmount(convertedExpenseSourceAmount.value, transaction.value.hideAmount, sourceAccountCurrency.value)}`;
     });
     const expenseAmountInputProblemMessage = computed<string | null>(() => {
         if (expenseForeignAmountExchangeRateMissing.value) {
@@ -763,7 +812,9 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         sourceAccountCurrency,
         currentSourceAccount,
         selectableExpenseForeignCurrencies,
+        expenseCurrencyPickerItems,
         convertedExpenseSourceAmount,
+        convertedExpenseSourceAmountHelperText,
         shouldShowExpenseForeignAmountFields,
         expenseAmountInputProblemMessage,
         editedExpenseAmount,

@@ -26,11 +26,13 @@
                 <f7-list class="no-margin" strong outline dividers>
                     <f7-list-item link="#" no-chevron
                                   :title="ti((titleField ? (item as Record<string, unknown>)[titleField] : item) as string, !!titleI18n)"
+                                  :subtitle="getItemSubtitleText(item) || undefined"
                                   :value="getItemValue(item, index, valueField, valueType)"
-                                  :class="{ 'list-item-selected': isSelected(item, index) }"
+                                  :class="{ 'list-item-selected': isSelected(item, index), 'disabled': isItemDisabled(item) }"
                                   :key="getItemValue(item, index, keyField, valueType)"
-                                  v-for="(item, index) in filteredItems"
-                                  v-show="item && (!hiddenField || !(item as Record<string, unknown>)[hiddenField])"
+                                   v-for="(item, index) in filteredItems"
+                                   v-show="item && (!hiddenField || !(item as Record<string, unknown>)[hiddenField])"
+                                  :aria-disabled="isItemDisabled(item) ? 'true' : undefined"
                                   @click="onItemClicked(item, index)">
                         <template #content-start>
                             <f7-icon class="list-item-checked-icon" f7="checkmark_alt" :style="{ 'color': isSelected(item, index) ? '' : 'transparent' }"></f7-icon>
@@ -51,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, useTemplateRef } from 'vue';
+import { ref, computed, nextTick, useTemplateRef } from 'vue';
 import type { Searchbar } from 'framework7/types';
 
 import { useI18n } from '@/locales/helpers.ts';
@@ -67,6 +69,8 @@ const props = defineProps<{
     valueField?: string; // for value type == item
     titleField: string;
     titleI18n?: boolean;
+    subtitleField?: string;
+    subtitleI18n?: boolean;
     afterField?: string;
     afterI18n?: boolean;
     iconField?: string;
@@ -74,6 +78,7 @@ const props = defineProps<{
     colorField?: string;
     hiddenField?: string;
     enableFilter?: boolean;
+    showSearchbarOnOpen?: boolean;
     filterPlaceholder?: string;
     filterNoItemsText?: string;
     items: unknown[];
@@ -129,6 +134,13 @@ const filteredItems = computed<unknown[]>(() => {
                 finalItems.push(item);
                 continue;
             }
+
+            const subtitle = getItemSubtitleText(item);
+
+            if (subtitle.toLowerCase().indexOf(lowerCaseFilterContent) >= 0) {
+                finalItems.push(item);
+                continue;
+            }
         }
     }
     return finalItems;
@@ -166,11 +178,33 @@ function getItemAfterText(item: unknown): string {
     }
 }
 
+function getItemSubtitleText(item: unknown): string {
+    if (props.valueType === 'index') {
+        return '';
+    } else if (props.subtitleField) {
+        return ti((item as Record<string, unknown>)[props.subtitleField] as string, !!props.subtitleI18n);
+    } else {
+        return '';
+    }
+}
+
+function isItemDisabled(item: unknown): boolean {
+    if (props.valueType === 'index') {
+        return false;
+    }
+
+    return !!(item as Record<string, unknown>)['disabled'];
+}
+
 function close(): void {
     emit('update:show', false);
 }
 
 function onItemClicked(item: unknown, index: number): void {
+    if (isItemDisabled(item)) {
+        return;
+    }
+
     if (props.valueType === 'index') {
         currentValue.value = index;
     } else {
@@ -187,6 +221,14 @@ function onItemClicked(item: unknown, index: number): void {
 
 function onPopupOpen(event: { $el: Framework7Dom }): void {
     currentValue.value = props.modelValue;
+    showSearchbar.value = !!props.enableFilter && !!props.showSearchbarOnOpen;
+
+    if (showSearchbar.value) {
+        void nextTick(() => {
+            event.$el[0]?.querySelector<HTMLInputElement>('.searchbar input[type="search"]')?.focus();
+        });
+    }
+
     scrollToSelectedItem(event.$el[0], '.popup > .page', '.page-content', 'li.list-item-selected');
 }
 
@@ -197,3 +239,11 @@ function onPopupClosed(): void {
     searchbar.value?.clear();
 }
 </script>
+
+<style>
+.list-item.disabled[aria-disabled='true'] .item-subtitle,
+.list-item.disabled[aria-disabled='true'] .item-title,
+.list-item.disabled[aria-disabled='true'] .item-after {
+    opacity: 0.55;
+}
+</style>

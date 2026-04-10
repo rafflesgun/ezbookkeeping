@@ -68,14 +68,18 @@
                 @click="showSourceAmountSheet = true"
             >
                 <template #title>
-                    <f7-block class="list-item-custom-title no-padding no-margin" v-if="transaction.type === TransactionType.Expense">
-                        <span>{{ getDisplayAmount(editedExpenseAmount, transaction.hideAmount, expenseAmountDisplayCurrency) }}</span>
-                        <small class="smaller" @click.stop="openExpenseCurrencyPicker">{{ expenseAmountDisplayCurrency }}</small>
-                    </f7-block>
+                    <div class="transaction-edit-amount-title" v-if="transaction.type === TransactionType.Expense">
+                        <div class="transaction-edit-amount-title-row">
+                            <span>{{ getDisplayAmount(editedExpenseAmount, transaction.hideAmount, expenseAmountDisplayCurrency) }}</span>
+                            <button class="transaction-edit-amount-currency-button" type="button" @click.stop="openExpenseCurrencyPicker">
+                                <f7-icon class="transaction-edit-amount-currency-button-icon" f7="money_dollar_circle"></f7-icon>
+                                <span>{{ expenseAmountDisplayCurrency }}</span>
+                                <f7-icon class="transaction-edit-amount-currency-button-chevron" f7="chevron_down"></f7-icon>
+                            </button>
+                        </div>
+                        <div class="transaction-edit-amount-helper" v-if="convertedExpenseSourceAmountHelperText">{{ convertedExpenseSourceAmountHelperText }}</div>
+                    </div>
                     <span v-else>{{ getDisplayAmount(transaction.sourceAmount, transaction.hideAmount, sourceAccountCurrency) }}</span>
-                </template>
-                <template #footer v-if="shouldShowExpenseForeignAmountFields && convertedExpenseSourceAmount !== null">
-                    <span>{{ getDisplayAmount(convertedExpenseSourceAmount, transaction.hideAmount, sourceAccountCurrency) }}</span>
                 </template>
                 <number-pad-sheet :min-value="TRANSACTION_MIN_AMOUNT"
                                   :max-value="TRANSACTION_MAX_AMOUNT"
@@ -86,12 +90,14 @@
                 <list-item-selection-popup value-type="item"
                                            key-field="currencyCode" value-field="currencyCode"
                                            title-field="displayName" after-field="currencyCode"
+                                           subtitle-field="secondaryText"
                                            :title="tt('Currency')"
                                            :enable-filter="true"
+                                           :show-searchbar-on-open="true"
                                            :filter-placeholder="tt('Currency')"
                                            :filter-no-items-text="tt('No results')"
-                                           :items="selectableExpenseForeignCurrencies"
-                                           :model-value="expenseForeignCurrency"
+                                           :items="expenseCurrencyPickerItems"
+                                           :model-value="expenseAmountDisplayCurrency"
                                            v-model:show="showExpenseAmountCurrencyPopup"
                                            @update:model-value="updateExpenseAmountCurrency">
                 </list-item-selection-popup>
@@ -645,8 +651,8 @@ const {
     destinationAccountName,
     sourceAccountCurrency,
     expenseForeignCurrency,
-    selectableExpenseForeignCurrencies,
-    convertedExpenseSourceAmount,
+    expenseCurrencyPickerItems,
+    convertedExpenseSourceAmountHelperText,
     shouldShowExpenseForeignAmountFields,
     editedExpenseAmount,
     destinationAccountCurrency,
@@ -1455,8 +1461,63 @@ init();
     font-weight: bolder;
 }
 
+.transaction-edit-amount .item-title,
+.transaction-edit-amount .item-footer {
+    width: 100%;
+}
+
 .transaction-edit-amount .item-header {
     padding-top: calc(var(--f7-typography-padding) / 2);
+}
+
+.transaction-edit-amount-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+}
+
+.transaction-edit-amount-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.transaction-edit-amount-currency-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--f7-theme-color) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--f7-theme-color) 28%, transparent);
+    color: var(--f7-theme-color);
+    font: inherit;
+    font-size: var(--f7-list-item-after-font-size);
+    font-weight: var(--f7-font-weight-medium);
+    line-height: 1.4;
+}
+
+.transaction-edit-amount-currency-button-icon,
+.transaction-edit-amount-currency-button-chevron {
+    font-size: 12px;
+}
+
+.transaction-edit-amount-currency-button-icon {
+    font-size: 13px;
+}
+
+.transaction-edit-amount.readonly .transaction-edit-amount-currency-button {
+    opacity: 0.7;
+}
+
+.transaction-edit-amount-helper {
+    color: var(--f7-list-item-footer-text-color);
+    font-size: var(--f7-list-item-footer-font-size);
+    font-weight: var(--f7-font-weight-normal);
+    line-height: var(--f7-list-item-footer-line-height);
 }
 
 .transaction-edit-datetime .item-title {
