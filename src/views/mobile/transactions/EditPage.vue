@@ -69,14 +69,7 @@
             >
                 <template #title>
                     <div class="transaction-edit-amount-title" v-if="transaction.type === TransactionType.Expense">
-                        <div class="transaction-edit-amount-title-row">
-                            <span>{{ getDisplayAmount(editedExpenseAmount, transaction.hideAmount, expenseAmountDisplayCurrency) }}</span>
-                            <button class="transaction-edit-amount-currency-button" type="button" @click.stop="openExpenseCurrencyPicker">
-                                <f7-icon class="transaction-edit-amount-currency-button-icon" f7="money_dollar_circle"></f7-icon>
-                                <span>{{ expenseAmountDisplayCurrency }}</span>
-                                <f7-icon class="transaction-edit-amount-currency-button-chevron" f7="chevron_down"></f7-icon>
-                            </button>
-                        </div>
+                        <span>{{ getDisplayAmount(editedExpenseAmount, transaction.hideAmount, expenseAmountDisplayCurrency) }}</span>
                         <div class="transaction-edit-amount-helper" v-if="convertedExpenseSourceAmountHelperText">{{ convertedExpenseSourceAmountHelperText }}</div>
                     </div>
                     <span v-else>{{ getDisplayAmount(transaction.sourceAmount, transaction.hideAmount, sourceAccountCurrency) }}</span>
@@ -89,8 +82,7 @@
                 ></number-pad-sheet>
                 <list-item-selection-popup value-type="item"
                                            key-field="currencyCode" value-field="currencyCode"
-                                           title-field="displayName" after-field="currencyCode"
-                                           subtitle-field="secondaryText"
+                                           title-field="displayName" after-field="mobileSecondaryText"
                                            :title="tt('Currency')"
                                            :enable-filter="true"
                                            :show-searchbar-on-open="true"
@@ -481,6 +473,8 @@
                 <f7-actions-button v-if="isSupportClipboard && !isiOS() && transaction.type === TransactionType.Transfer" @click="pasteAmount('destinationAmount')">{{ tt('Paste Destination Amount') }}</f7-actions-button>
                 <f7-actions-button v-if="transaction.hideAmount" @click="transaction.hideAmount = false">{{ tt('Show Amount') }}</f7-actions-button>
                 <f7-actions-button v-if="!transaction.hideAmount" @click="transaction.hideAmount = true">{{ tt('Hide Amount') }}</f7-actions-button>
+                <f7-actions-button v-if="shouldShowExpenseForeignAmountFields" @click="updateExpenseAmountCurrency(sourceAccountCurrency); showMoreActionSheet = false">{{ tt('Use Account Currency') }}</f7-actions-button>
+                <f7-actions-button :class="{ 'disabled': !canSwitchToForeignCurrency }" v-if="transaction.type === TransactionType.Expense && !shouldShowExpenseForeignAmountFields" @click="showMoreActionSheet = false; showExpenseAmountCurrencyPopup = true">{{ tt('Change Currency') }}</f7-actions-button>
             </f7-actions-group>
             <f7-actions-group v-if="pageTypeAndMode?.type === TransactionEditPageType.Transaction && (mode === TransactionEditPageMode.Add || mode === TransactionEditPageMode.Edit) && isTransactionPicturesEnabled() && !showTransactionPictures">
                 <f7-actions-button @click="showTransactionPictures = true">{{ tt('Add Picture') }}</f7-actions-button>
@@ -490,18 +484,6 @@
                 <f7-actions-button @click="duplicate(true, false)">{{ tt('Duplicate (With Time)') }}</f7-actions-button>
                 <f7-actions-button @click="duplicate(false, true)" v-if="transaction.geoLocation">{{ tt('Duplicate (With Geographic Location)') }}</f7-actions-button>
                 <f7-actions-button @click="duplicate(true, true)" v-if="transaction.geoLocation">{{ tt('Duplicate (With Time and Geographic Location)') }}</f7-actions-button>
-            </f7-actions-group>
-            <f7-actions-group>
-                <f7-actions-button bold close>{{ tt('Cancel') }}</f7-actions-button>
-            </f7-actions-group>
-        </f7-actions>
-
-        <f7-actions close-by-outside-click close-on-escape :opened="showExpenseAmountCurrencyActions" @actions:closed="showExpenseAmountCurrencyActions = false">
-            <f7-actions-group v-if="shouldShowExpenseForeignAmountFields">
-                <f7-actions-button @click="updateExpenseAmountCurrency(sourceAccountCurrency)">{{ sourceAccountCurrency }}</f7-actions-button>
-            </f7-actions-group>
-            <f7-actions-group>
-                <f7-actions-button @click="showExpenseAmountCurrencyActions = false; showExpenseAmountCurrencyPopup = true">{{ tt('Choose Foreign Currency') }}</f7-actions-button>
             </f7-actions-group>
             <f7-actions-group>
                 <f7-actions-button bold close>{{ tt('Cancel') }}</f7-actions-button>
@@ -651,6 +633,7 @@ const {
     destinationAccountName,
     sourceAccountCurrency,
     expenseForeignCurrency,
+    canSwitchToForeignCurrency,
     expenseCurrencyPickerItems,
     convertedExpenseSourceAmountHelperText,
     shouldShowExpenseForeignAmountFields,
@@ -695,7 +678,6 @@ const showTimezonePopup = ref<boolean>(false);
 const showGeoLocationActionSheet = ref<boolean>(false);
 const showMoreActionSheet = ref<boolean>(false);
 const showSourceAmountSheet = ref<boolean>(false);
-const showExpenseAmountCurrencyActions = ref<boolean>(false);
 const showExpenseAmountCurrencyPopup = ref<boolean>(false);
 const showDestinationAmountSheet = ref<boolean>(false);
 const showCategorySheet = ref<boolean>(false);
@@ -1198,21 +1180,7 @@ function save(afterAction: AfterSaveAction): void {
     }
 }
 
-function openExpenseCurrencyPicker(): void {
-    if (mode.value === TransactionEditPageMode.View || transaction.value.type !== TransactionType.Expense) {
-        return;
-    }
-
-    if (shouldShowExpenseForeignAmountFields.value) {
-        showExpenseAmountCurrencyActions.value = true;
-    } else {
-        showExpenseAmountCurrencyPopup.value = true;
-    }
-}
-
 function updateExpenseAmountCurrency(currency: string): void {
-    showExpenseAmountCurrencyActions.value = false;
-
     if (transaction.value.type !== TransactionType.Expense) {
         return;
     }
@@ -1474,43 +1442,6 @@ init();
     display: flex;
     flex-direction: column;
     gap: 2px;
-    width: 100%;
-}
-
-.transaction-edit-amount-title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.transaction-edit-amount-currency-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border: 0;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--f7-theme-color) 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--f7-theme-color) 28%, transparent);
-    color: var(--f7-theme-color);
-    font: inherit;
-    font-size: var(--f7-list-item-after-font-size);
-    font-weight: var(--f7-font-weight-medium);
-    line-height: 1.4;
-}
-
-.transaction-edit-amount-currency-button-icon,
-.transaction-edit-amount-currency-button-chevron {
-    font-size: 12px;
-}
-
-.transaction-edit-amount-currency-button-icon {
-    font-size: 13px;
-}
-
-.transaction-edit-amount.readonly .transaction-edit-amount-currency-button {
-    opacity: 0.7;
 }
 
 .transaction-edit-amount-helper {

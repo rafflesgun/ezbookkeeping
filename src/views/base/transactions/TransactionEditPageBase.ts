@@ -75,7 +75,7 @@ export interface ExpenseCurrencyPickerItem {
     readonly currencyCode: string,
     readonly displayName: string,
     readonly secondaryText: string,
-    readonly disabled: boolean
+    readonly mobileSecondaryText: string
 }
 
 const recentExpenseForeignCurrenciesLocalStorageKey = 'ebk_recent_expense_foreign_currencies';
@@ -355,6 +355,29 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
 
         return recentCurrencies.concat(orderedCurrencies);
     });
+    const canSwitchToForeignCurrency = computed<boolean>(() => {
+        if (transaction.value.type !== TransactionType.Expense) {
+            return false;
+        }
+
+        const srcCurrency = sourceAccountCurrency.value;
+        const sourceExchangeRate = exchangeRatesStore.latestExchangeRateMap[srcCurrency];
+
+        if (!sourceExchangeRate?.rate) {
+            return false;
+        }
+
+        for (const currency of allCurrencies.value) {
+            if (currency.currencyCode !== srcCurrency) {
+                const foreignExchangeRate = exchangeRatesStore.latestExchangeRateMap[currency.currencyCode];
+                if (foreignExchangeRate?.rate) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    });
     const expenseCurrencyPickerItems = computed<ExpenseCurrencyPickerItem[]>(() => {
         const sourceCurrency = sourceAccountCurrency.value;
         const sourceExchangeRate = exchangeRatesStore.latestExchangeRateMap[sourceCurrency];
@@ -364,7 +387,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             currencyCode: sourceCurrency,
             displayName: sourceCurrencyDisplayName,
             secondaryText: tt('Use account currency'),
-            disabled: false
+            mobileSecondaryText: tt('Use account currency')
         }];
 
         for (const currency of selectableExpenseForeignCurrencies.value) {
@@ -372,18 +395,18 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             const convertedRate = sourceExchangeRate?.rate && foreignExchangeRate?.rate
                 ? getExchangedAmountByRate(1, foreignExchangeRate.rate, sourceExchangeRate.rate)
                 : null;
-            const hasExchangeRate = convertedRate !== null;
-            const displayRate = hasExchangeRate
-                ? formatExchangeRateAmountToWesternArabicNumerals(convertedRate)
-                : null;
+
+            if (convertedRate === null) {
+                continue;
+            }
+
+            const displayRate = formatExchangeRateAmountToWesternArabicNumerals(convertedRate);
 
             items.push({
                 currencyCode: currency.currencyCode,
                 displayName: currency.displayName,
-                secondaryText: hasExchangeRate
-                    ? `${currency.currencyCode} • 1 ${currency.currencyCode} = ${displayRate} ${sourceCurrency}`
-                    : tt('No exchange rate data'),
-                disabled: !hasExchangeRate
+                secondaryText: `1 ${currency.currencyCode} = ${displayRate} ${sourceCurrency}`,
+                mobileSecondaryText: `${currency.currencyCode} • ${displayRate}/${sourceCurrency}`
             });
         }
 
@@ -812,6 +835,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         sourceAccountCurrency,
         currentSourceAccount,
         selectableExpenseForeignCurrencies,
+        canSwitchToForeignCurrency,
         expenseCurrencyPickerItems,
         convertedExpenseSourceAmount,
         convertedExpenseSourceAmountHelperText,

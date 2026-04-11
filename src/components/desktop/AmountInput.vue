@@ -19,6 +19,7 @@
                             v-bind="props" v-if="enableFormula && !formulaMode"></v-icon>
                 </template>
             </v-tooltip>
+            <slot name="append-inner"></slot>
         </template>
     </v-text-field>
     <v-text-field type="text" class="text-field-with-colored-label" :class="extraClass"

@@ -98,67 +98,66 @@
                                 </v-col>
                                 <v-col cols="12" :md="transaction.type === TransactionType.Transfer ? 6 : 12">
                                     <div v-if="transaction.type === TransactionType.Expense">
-                                        <div class="expense-amount-field-wrap">
-                                            <amount-input class="transaction-edit-amount font-weight-bold flex-grow-1"
-                                                          :color="sourceAmountColor"
-                                                          :currency="expenseAmountDisplayCurrency"
-                                                          :show-currency="true"
-                                                          :readonly="mode === TransactionEditPageMode.View"
-                                                          :disabled="loading || submitting"
-                                                          :persistent-placeholder="true"
-                                                          :hide="transaction.hideAmount"
-                                                          :label="sourceAmountTitle"
-                                                          :placeholder="tt(sourceAmountName)"
-                                                          :enable-formula="mode !== TransactionEditPageMode.View"
-                                                          v-model="editedExpenseAmount"/>
-
-                                            <v-btn variant="text"
-                                                   color="default"
-                                                   class="expense-currency-button"
-                                                    :disabled="loading || submitting"
-                                                    v-if="mode !== TransactionEditPageMode.View">
-                                                <span class="expense-currency-button__label text-body-2">{{ expenseAmountDisplayCurrency }}</span>
-                                                <v-icon size="18" class="expense-currency-button__icon" :icon="mdiMenuDown" />
-
-                                                <v-menu v-model="expenseCurrencyMenuState" activator="parent" location="bottom end" max-height="420">
-                                                    <div class="expense-currency-menu">
-                                                        <div class="px-3 pt-3 pb-2">
-                                                            <v-text-field
-                                                                v-model="expenseCurrencyFilterText"
-                                                                density="compact"
-                                                                variant="outlined"
-                                                                hide-details
-                                                                clearable
-                                                                autofocus
-                                                                :placeholder="tt('Search currency')"
-                                                            />
-                                                        </div>
-
-                                                        <v-list class="pt-0">
-                                                            <v-list-item v-for="item in filteredExpenseCurrencyPickerItems"
-                                                                         :key="item.currencyCode"
-                                                                         :title="item.displayName"
-                                                                         :subtitle="item.secondaryText"
-                                                                         :active="expenseAmountDisplayCurrency === item.currencyCode"
-                                                                         :disabled="item.disabled"
-                                                                         :class="{ 'expense-currency-item--disabled': item.disabled }"
-                                                                         @click="!item.disabled && updateExpenseAmountCurrency(item.currencyCode)">
-                                                                <template #append>
-                                                                    <div class="d-flex align-center ga-2">
-                                                                        <span class="text-body-2 text-medium-emphasis">{{ item.currencyCode }}</span>
-                                                                        <v-icon :icon="mdiCheck" v-if="expenseAmountDisplayCurrency === item.currencyCode" />
-                                                                    </div>
+                                        <amount-input class="transaction-edit-amount font-weight-bold flex-grow-1"
+                                                      :color="sourceAmountColor"
+                                                      :currency="expenseAmountDisplayCurrency"
+                                                      :show-currency="true"
+                                                      :readonly="mode === TransactionEditPageMode.View"
+                                                      :disabled="loading || submitting"
+                                                      :persistent-placeholder="true"
+                                                      :hide="transaction.hideAmount"
+                                                      :label="sourceAmountTitle"
+                                                      :placeholder="tt(sourceAmountName)"
+                                                      :enable-formula="mode !== TransactionEditPageMode.View"
+                                                      v-model="editedExpenseAmount">
+                                            <template #append-inner>
+                                                <div class="expense-currency-menu-activator" v-if="mode !== TransactionEditPageMode.View">
+                                                    <v-menu v-model="expenseCurrencyMenuState" location="bottom end" max-height="420">
+                                                        <template #activator="{ props }">
+                                                            <v-tooltip :text="tt('Change Currency')">
+                                                                <template v-slot:activator="{ props: tooltipProps }">
+                                                                    <v-icon class="ms-2" :icon="mdiCurrencyUsd"
+                                                                            :disabled="!canSwitchToForeignCurrency || loading || submitting"
+                                                                            v-bind="{ ...props, ...tooltipProps }"></v-icon>
                                                                 </template>
-                                                            </v-list-item>
+                                                            </v-tooltip>
+                                                        </template>
 
-                                                            <v-list-item v-if="!filteredExpenseCurrencyPickerItems.length"
-                                                                         :title="tt('No results')"
-                                                                         disabled />
-                                                        </v-list>
-                                                    </div>
-                                                </v-menu>
-                                            </v-btn>
-                                        </div>
+                                                        <v-card class="expense-currency-menu">
+                                                            <v-card-title class="pa-3 pb-0 bg-surface">
+                                                                <v-text-field
+                                                                    v-model="expenseCurrencyFilterText"
+                                                                    density="compact"
+                                                                    variant="outlined"
+                                                                    hide-details
+                                                                    clearable
+                                                                    :placeholder="tt('Search currency')"
+                                                                />
+                                                            </v-card-title>
+                                                            <v-list class="pt-0 expense-currency-menu-list">
+                                                                <v-list-item v-for="item in filteredExpenseCurrencyPickerItems"
+                                                                             :key="item.currencyCode"
+                                                                             :title="item.displayName"
+                                                                             :subtitle="item.secondaryText"
+                                                                             :active="expenseAmountDisplayCurrency === item.currencyCode"
+                                                                             @click="updateExpenseAmountCurrency(item.currencyCode)">
+                                                                    <template #append>
+                                                                        <div class="d-flex align-center ga-2">
+                                                                            <span class="text-body-2 text-medium-emphasis">{{ item.currencyCode }}</span>
+                                                                            <v-icon :icon="mdiCheck" v-if="expenseAmountDisplayCurrency === item.currencyCode" />
+                                                                        </div>
+                                                                    </template>
+                                                                </v-list-item>
+
+                                                                <v-list-item v-if="!filteredExpenseCurrencyPickerItems.length"
+                                                                             :title="tt('No results')"
+                                                                             disabled />
+                                                            </v-list>
+                                                        </v-card>
+                                                    </v-menu>
+                                                </div>
+                                            </template>
+                                        </amount-input>
 
                                         <div class="text-body-2 text-medium-emphasis mt-1 ms-1"
                                              v-if="convertedExpenseSourceAmountHelperText">
@@ -608,6 +607,7 @@ import {
     mdiMapMarkerOutline,
     mdiCheck,
     mdiMenuDown,
+    mdiCurrencyUsd,
     mdiImagePlusOutline,
     mdiTrashCanOutline,
     mdiFullscreen
@@ -675,6 +675,7 @@ const {
     sourceAccountCurrency,
     destinationAccountCurrency,
     expenseForeignCurrency,
+    canSwitchToForeignCurrency,
     expenseCurrencyPickerItems,
     convertedExpenseSourceAmountHelperText,
     shouldShowExpenseForeignAmountFields,
@@ -1297,36 +1298,18 @@ defineExpose({
     font-size: 1.25rem;
 }
 
-.expense-amount-field-wrap {
-    position: relative;
-}
-
-.expense-currency-button {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    min-width: auto;
-    height: 32px;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: rgba(var(--v-theme-surface-variant), 0.5);
-    z-index: 1;
-}
-
-.expense-currency-button__label {
-    font-weight: 600;
-}
-
-.expense-currency-button__icon {
-    margin-inline-start: 4px;
+.expense-currency-menu-activator {
+    display: inline-flex;
+    align-items: center;
 }
 
 .expense-currency-menu {
     width: min(360px, calc(100vw - 32px));
 }
 
-.expense-currency-item--disabled {
-    opacity: 0.6;
+.expense-currency-menu-list {
+    overflow-y: auto;
+    max-height: 350px;
 }
 
 .transaction-edit-timezone.v-input input::placeholder {
