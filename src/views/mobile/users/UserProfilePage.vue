@@ -122,6 +122,29 @@
             <f7-list-item
                 link="#" no-chevron
                 class="list-item-with-header-and-title list-item-no-item-after"
+                popover-open=".use-last-reconciled-time-popover-menu"
+                :header="tt('Use Last Reconciled Time')"
+                :title="getEnableDisableOption(newProfile.useLastReconciledTime)"
+            >
+                <f7-popover class="use-last-reconciled-time-popover-menu">
+                    <f7-list dividers>
+                        <f7-list-item link="#" no-chevron popover-close
+                                      :title="option.displayName"
+                                      :class="{ 'list-item-selected': newProfile.useLastReconciledTime === option.value, 'disabled': !option.value && (TransactionEditScopeType.valueOf(newProfile.transactionEditScope)?.needLastReconciledTime ?? false) }"
+                                      :key="option.value"
+                                      v-for="option in enableDisableOptions"
+                                      @click="newProfile.useLastReconciledTime = option.value">
+                            <template #after>
+                                <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="newProfile.useLastReconciledTime === option.value"></f7-icon>
+                            </template>
+                        </f7-list-item>
+                    </f7-list>
+                </f7-popover>
+            </f7-list-item>
+
+            <f7-list-item
+                link="#" no-chevron
+                class="list-item-with-header-and-title list-item-no-item-after"
                 :header="tt('Editable Transaction Range')"
                 :title="findDisplayNameByType(allTransactionEditScopeTypes, newProfile.transactionEditScope)"
                 @click="showEditableTransactionRangePopup = true"
@@ -573,6 +596,7 @@ import { useAccountsStore } from '@/stores/account.ts';
 import { TextDirection } from '@/core/text.ts';
 import { NumeralSystem } from '@/core/numeral.ts';
 import type { LocalizedCurrencyInfo } from '@/core/currency.ts';
+import { TransactionEditScopeType } from '@/core/transaction.ts';
 
 import type { UserProfileResponse } from '@/models/user.ts';
 import { Account } from '@/models/account.ts';
@@ -589,6 +613,7 @@ const {
     getCurrentLanguageTextDirection,
     getAllLanguageOptions,
     getAllCurrencies,
+    getEnableDisableOption,
     getCurrencyName,
     formatFiscalYearStartToGregorianLikeLongMonth
 } = useI18n();
@@ -621,6 +646,7 @@ const {
     allExpenseAmountColorTypes,
     allIncomeAmountColorTypes,
     allTransactionEditScopeTypes,
+    enableDisableOptions,
     languageTitle,
     supportDigitGroupingSymbol,
     inputIsNotChangedProblemMessage,

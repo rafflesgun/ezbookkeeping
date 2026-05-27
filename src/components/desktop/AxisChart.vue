@@ -70,6 +70,7 @@ const props = defineProps<{
     displayOrdersField?: string;
     translateName?: boolean;
     amountValue?: boolean;
+    percentValue?: boolean;
     defaultCurrency?: string;
     enableClickItem?: boolean;
     tooltipExtraColumnNames?: string[];
@@ -89,7 +90,7 @@ const {
     formatAmountToWesternArabicNumeralsWithoutDigitGrouping,
     formatAmountToLocalizedNumeralsWithCurrency,
     formatNumberToLocalizedNumerals,
-    formatNumberToWesternArabicNumerals,
+    formatNumberToWesternArabicNumeralsWithoutDigitGrouping,
     formatPercentToLocalizedNumerals
 } = useI18n();
 
@@ -477,7 +478,7 @@ function getItemName(name: string): string {
 }
 
 function getDisplayValue(value: number): string {
-    if (props.oneHundredPercentStacked) {
+    if (props.oneHundredPercentStacked || props.percentValue) {
         return formatPercentToLocalizedNumerals(value, 2, '<0.01');
     }
 
@@ -522,9 +523,9 @@ function exportData(): { headers: string[], data: string[][] } {
         row.push(categoryName);
         row.push(...allSeries.value.map(item => {
             if (props.oneHundredPercentStacked) {
-                return formatNumberToWesternArabicNumerals(item.data[index] ?? 0);
+                return formatNumberToWesternArabicNumeralsWithoutDigitGrouping(item.data[index] ?? 0);
             } else {
-                return formatAmountToWesternArabicNumeralsWithoutDigitGrouping(item.data[index] ?? 0);
+                return formatAmountToWesternArabicNumeralsWithoutDigitGrouping(item.data[index] ?? 0, props.defaultCurrency);
             }
         }));
         data.push(row);

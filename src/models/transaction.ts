@@ -558,6 +558,31 @@ export interface TransactionModifyRequest {
     readonly geoLocation?: TransactionGeoLocationRequest;
 }
 
+export interface TransactionBatchUpdateCategoryRequest {
+    readonly transactionIds: string[];
+    readonly categoryId: string;
+}
+
+export interface TransactionBatchUpdateAccountRequest {
+    readonly transactionIds: string[];
+    readonly accountId: string;
+    readonly isDestinationAccount: boolean;
+}
+
+export interface TransactionBatchAddTagsRequest {
+    readonly transactionIds: string[];
+    readonly tagIds: string[];
+}
+
+export interface TransactionBatchRemoveTagsRequest {
+    readonly transactionIds: string[];
+    readonly tagIds: string[];
+}
+
+export interface TransactionBatchClearTagsRequest {
+    readonly transactionIds: string[];
+}
+
 export interface TransactionMoveBetweenAccountsRequest {
     readonly fromAccountId: string;
     readonly toAccountId: string;
@@ -565,6 +590,11 @@ export interface TransactionMoveBetweenAccountsRequest {
 
 export interface TransactionDeleteRequest {
     readonly id: string;
+}
+
+export interface TransactionBatchDeleteRequest {
+    readonly ids: string[];
+    readonly password: string;
 }
 
 export interface TransactionImportRequest {
@@ -584,6 +614,8 @@ export interface TransactionListByMaxTimeRequest {
     readonly tagFilter: string;
     readonly amountFilter: string;
     readonly keyword: string;
+    readonly mustHavePictures?: boolean;
+    readonly withPictures?: boolean;
 }
 
 export interface TransactionListInMonthByPageRequest {
@@ -595,6 +627,8 @@ export interface TransactionListInMonthByPageRequest {
     readonly tagFilter: string;
     readonly amountFilter: string;
     readonly keyword: string;
+    readonly mustHavePictures?: boolean;
+    readonly withPictures?: boolean;
 }
 
 export interface TransactionAllListRequest {

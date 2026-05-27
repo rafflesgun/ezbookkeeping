@@ -1,12 +1,13 @@
 <template>
-    <v-dialog :persistent="loading" v-model="showState">
+    <v-dialog :persistent="loading || updatingLastReconciledTime" v-model="showState">
         <v-card class="pa-sm-1 pa-md-2">
             <template #title>
                 <div class="d-flex align-center justify-center">
                     <div class="d-flex flex-wrap w-100 align-center">
                         <h4 class="text-h4">{{ tt('Reconciliation Statement') }}</h4>
                         <v-btn density="compact" color="default" variant="text" size="24"
-                               class="ms-2" :icon="true" :loading="loading" @click="reload(true)">
+                               class="ms-2" :icon="true" :disabled="updatingLastReconciledTime"
+                               :loading="loading" @click="reload(true)">
                             <template #loader>
                                 <v-progress-circular indeterminate size="20"/>
                             </template>
@@ -14,7 +15,7 @@
                             <v-tooltip activator="parent">{{ tt('Refresh') }}</v-tooltip>
                         </v-btn>
                         <v-switch class="bidirectional-switch ms-2 pt-1" color="secondary"
-                                  :disabled="loading"
+                                  :disabled="loading || updatingLastReconciledTime"
                                   :label="tt('Account Balance Trends')"
                                   v-model="showAccountBalanceTrendsCharts"
                                   @click="showAccountBalanceTrendsCharts = !showAccountBalanceTrendsCharts">
@@ -24,7 +25,7 @@
                         </v-switch>
                     </div>
                     <v-btn density="comfortable" color="default" variant="text" class="ms-2"
-                           :icon="true" :disabled="loading"
+                           :icon="true" :disabled="loading || updatingLastReconciledTime"
                            v-if="showAccountBalanceTrendsCharts">
                         <v-icon :icon="mdiTuneVertical" />
                         <v-menu activator="parent">
@@ -56,7 +57,7 @@
                         </v-menu>
                     </v-btn>
                     <v-btn density="comfortable" color="default" variant="text" class="ms-2"
-                           :icon="true" :disabled="loading">
+                           :icon="true" :disabled="loading || updatingLastReconciledTime">
                         <v-icon :icon="mdiDotsVertical" />
                         <v-menu activator="parent">
                             <v-list>
@@ -201,7 +202,7 @@
                         <span>{{ getDisplayAccountBalance(item) }}</span>
                     </template>
                     <template #item.operation="{ item }">
-                        <v-btn density="compact" variant="text" color="default" :disabled="loading || item.type === TransactionType.ModifyBalance"
+                        <v-btn density="compact" variant="text" color="default" :disabled="loading || updatingLastReconciledTime || item.type === TransactionType.ModifyBalance"
                                @click="showTransaction(item)">
                             {{ tt('View') }}
                         </v-btn>
@@ -246,6 +247,7 @@
                         :items="[]"
                         :legend-name="isCurrentLiabilityAccount ? tt('Account Outstanding Balance') : tt('Account Balance')"
                         :account="currentAccount"
+                        :statement-date="currentAccountStatementDate"
                         :skeleton="true"
                         v-if="showAccountBalanceTrendsCharts && loading"
                     />
@@ -258,6 +260,7 @@
                         :items="reconciliationStatements?.transactions"
                         :legend-name="isCurrentLiabilityAccount ? tt('Account Outstanding Balance') : tt('Account Balance')"
                         :account="currentAccount"
+                        :statement-date="currentAccountStatementDate"
                         v-if="showAccountBalanceTrendsCharts && !loading"
                     />
                 </div>
@@ -265,8 +268,14 @@
 
             <v-card-text>
                 <div class="w-100 d-flex justify-center flex-wrap mt-sm-1 mt-md-2 gap-4">
+                    <v-btn color="primary" variant="tonal"
+                           :disabled="loading || updatingLastReconciledTime" @click="updateLastReconciledTime"
+                           v-if="newLastReconciledTime">
+                        {{ tt('Mark as Reconciled') }}
+                        <v-progress-circular indeterminate size="22" class="ms-2" v-if="updatingLastReconciledTime"></v-progress-circular>
+                    </v-btn>
                     <v-btn color="secondary" variant="tonal"
-                           :disabled="loading" @click="close">{{ tt('Close') }}</v-btn>
+                           :disabled="loading || updatingLastReconciledTime" @click="close">{{ tt('Close') }}</v-btn>
                 </div>
             </v-card-text>
         </v-card>
@@ -295,7 +304,6 @@ import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useTransactionsStore } from '@/stores/transaction.ts';
 
 import type { NameNumeralValue } from '@/core/base.ts';
-import type { NumeralSystem } from '@/core/numeral.ts';
 import { TimezoneTypeForStatistics } from '@/core/timezone.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import { AccountBalanceTrendChartType, ChartDateAggregationType } from '@/core/statistics.ts';
@@ -320,6 +328,7 @@ import {
     mdiChartWaterfall,
     mdiCalendarTodayOutline,
     mdiCalendarMonthOutline,
+    mdiCalendarTextOutline,
     mdiHomeClockOutline,
     mdiInvoiceTextClockOutline,
     mdiLayersTripleOutline,
@@ -338,7 +347,10 @@ const emit = defineEmits<{
     (e: 'error', message: string): void;
 }>();
 
-const { tt, getCurrentNumeralSystemType, formatNumberToLocalizedNumerals } = useI18n();
+const {
+    tt,
+    formatNumberToLocalizedNumerals
+} = useI18n();
 
 const {
     accountId,
@@ -353,7 +365,9 @@ const {
     allTimezoneTypesUsedForDateRange,
     currentAccount,
     currentAccountCurrency,
+    currentAccountStatementDate,
     isCurrentLiabilityAccount,
+    newLastReconciledTime,
     exportFileName,
     displayStartDateTime,
     displayEndDateTime,
@@ -362,6 +376,7 @@ const {
     displayTotalBalance,
     displayOpeningBalance,
     displayClosingBalance,
+    updatePageOpenTime,
     setReconciliationStatements,
     getDisplayTransactionType,
     getDisplayDateTime,
@@ -391,6 +406,7 @@ const chartDataDateAggregationTypeIconMap = {
     [ChartDateAggregationType.Quarter.type]: mdiLayersTripleOutline,
     [ChartDateAggregationType.Year.type]: mdiLayersTripleOutline,
     [ChartDateAggregationType.FiscalYear.type]: mdiLayersTripleOutline,
+    [ChartDateAggregationType.BillingCycle.type]: mdiCalendarTextOutline,
 };
 
 const timezoneTypeIconMap = {
@@ -404,6 +420,7 @@ const editDialog = useTemplateRef<EditDialogType>('editDialog');
 
 const showState = ref<boolean>(false);
 const loading = ref<boolean>(false);
+const updatingLastReconciledTime = ref<boolean>(false);
 const currentPage = ref<number>(1);
 const countPerPage = ref<number>(10);
 const showAccountBalanceTrendsCharts = ref<boolean>(false);
@@ -411,7 +428,6 @@ const chartType = ref<number>(AccountBalanceTrendChartType.Default.type);
 
 let rejectFunc: ((reason?: unknown) => void) | null = null;
 
-const numeralSystem = computed<NumeralSystem>(() => getCurrentNumeralSystemType());
 const reconciliationStatementsTablePageOptions = computed<NameNumeralValue[]>(() => getTablePageOptions(reconciliationStatements.value?.transactions.length));
 
 const totalPageCount = computed<number>(() => {
@@ -461,7 +477,7 @@ function getTablePageOptions(linesCount?: number): NameNumeralValue[] {
             break;
         }
 
-        pageOptions.push({ value: count, name: numeralSystem.value.formatNumber(count) });
+        pageOptions.push({ value: count, name: formatNumberToLocalizedNumerals(count) });
     }
 
     pageOptions.push({ value: -1, name: tt('All') });
@@ -484,6 +500,7 @@ function getTransactionTypeColor(transaction: TransactionReconciliationStatement
 }
 
 function open(options: { accountId: string, startTime: number, endTime: number }): Promise<void> {
+    updatePageOpenTime();
     accountId.value = options.accountId;
     startTime.value = options.startTime;
     endTime.value = options.endTime;
@@ -645,6 +662,25 @@ function showTransaction(transaction: TransactionReconciliationStatementResponse
 
         reload(false);
     }).catch(error => {
+        if (error) {
+            snackbar.value?.showError(error);
+        }
+    });
+}
+
+function updateLastReconciledTime(): void {
+    if (!newLastReconciledTime.value) {
+        return;
+    }
+
+    updatingLastReconciledTime.value = true;
+
+    accountsStore.updateAccountLastReconciledTime(accountId.value, newLastReconciledTime.value).then(() => {
+        updatingLastReconciledTime.value = false;
+        snackbar.value?.showMessage('Last reconciled time have been updated');
+    }).catch(error => {
+        updatingLastReconciledTime.value = false;
+
         if (error) {
             snackbar.value?.showError(error);
         }

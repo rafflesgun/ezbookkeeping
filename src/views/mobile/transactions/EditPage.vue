@@ -423,7 +423,11 @@
                                         <f7-icon class="picture-control-icon picture-remove-icon" f7="trash" v-if="pictureInfo.pictureId !== removingPictureId"></f7-icon>
                                         <f7-preloader color="white" :size="28" v-if="pictureInfo.pictureId === removingPictureId" />
                                     </div>
-                                    <img alt="picture" :src="getTransactionPictureUrl(pictureInfo)"/>
+                                    <image-box style="height: 100%" alt="picture" :src="getTransactionPictureUrl(pictureInfo)">
+                                        <template #error>
+                                            {{ tt('Failed to load image, please check whether the config "domain" and "root_url" are set correctly.') }}
+                                        </template>
+                                    </image-box>
                                 </div>
                             </swiper-slide>
                             <swiper-slide @click="showOpenPictureDialog" v-if="canAddTransactionPicture">
@@ -586,6 +590,7 @@ const pageTypeAndMode = getPageTypeNameMode();
 
 const {
     tt,
+    getMultiMonthAndDayLongNames,
     getMultiMonthdayShortNames,
     getMultiWeekdayLongNames,
     formatDateTimeToLongDate,
@@ -818,7 +823,9 @@ const transactionDisplayScheduledFrequency = computed<string>(() => {
         }
     }
 
-    if (template.scheduledFrequencyType === ScheduledTemplateFrequencyType.Weekly.type) {
+    if (template.scheduledFrequencyType === ScheduledTemplateFrequencyType.Daily.type) {
+        return tt('Daily');
+    } else if (template.scheduledFrequencyType === ScheduledTemplateFrequencyType.Weekly.type) {
         if (scheduledFrequencyValues.length) {
             return tt('format.misc.everyMultiDaysOfWeek', {
                 days: getMultiWeekdayLongNames(scheduledFrequencyValues, firstDayOfWeek.value)
@@ -833,6 +840,14 @@ const transactionDisplayScheduledFrequency = computed<string>(() => {
             });
         } else {
             return tt('Monthly');
+        }
+    } else if (template.scheduledFrequencyType === ScheduledTemplateFrequencyType.Yearly.type) {
+        if (scheduledFrequencyValues.length) {
+            return tt('format.misc.everyMultiDaysOfYear', {
+                days: getMultiMonthAndDayLongNames(scheduledFrequencyValues)
+            });
+        } else {
+            return tt('Yearly');
         }
     } else {
         return '';
@@ -1496,13 +1511,17 @@ init();
     height: var(--ebk-transaction-picture-size);
 }
 
-.transaction-picture-container,
-.transaction-picture {
+.transaction-pictures .transaction-picture-container {
     width: var(--ebk-transaction-picture-size);
     height: var(--ebk-transaction-picture-size);
 }
 
-.transaction-picture .transaction-picture-control-backdrop {
+.transaction-pictures .transaction-picture-container .transaction-picture {
+    width: 100%;
+    height: 100%;
+}
+
+.transaction-pictures .transaction-picture-container .transaction-picture .transaction-picture-control-backdrop {
     width: 100%;
     height: 100%;
     position: absolute;
@@ -1511,18 +1530,18 @@ init();
     border-radius: 8px;
 }
 
-.transaction-picture .picture-control-icon {
+.transaction-pictures .transaction-picture-container .transaction-picture .picture-control-icon {
     z-index: 15;
     font-size: var(--ebk-transaction-picture-add-icon-size);
 }
 
-.transaction-picture .picture-remove-icon {
+.transaction-pictures .transaction-picture-container .transaction-picture .picture-remove-icon {
     background-color: transparent;
     color: rgba(255, 255, 255, 0.8);
     font-size: var(--ebk-transaction-picture-remove-icon-size);
 }
 
-.transaction-picture > img {
+.transaction-pictures .transaction-picture-container .transaction-picture img {
     object-fit: cover;
     position: absolute;
     top: 0;
@@ -1532,7 +1551,7 @@ init();
     border-radius: 8px;
 }
 
-.transaction-picture-add {
+.transaction-pictures .transaction-picture-add {
     width: calc(var(--ebk-transaction-picture-size) - 2px);
     height: calc(var(--ebk-transaction-picture-size) - 4px);
     border: 2px dashed #ccc;

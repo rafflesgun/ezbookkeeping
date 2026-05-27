@@ -12,7 +12,8 @@
                         :disabled="loading || disabled"
                         :label="tt('Chart Type')"
                         :items="allTransactionExplorerChartTypes"
-                        v-model="currentExplorer.chartType"
+                        :model-value="currentExplorer.chartType"
+                        @update:model-value="updateChartType"
                     />
                     <v-select
                         class="flex-0-0"
@@ -20,10 +21,10 @@
                         item-title="name"
                         item-value="value"
                         density="compact"
-                        :disabled="loading || disabled"
+                        :disabled="loading || disabled || isDefined(TransactionExplorerChartType.valueOf(currentExplorer.chartType)?.fixedCategoryDimension)"
                         :label="tt('Axis / Category')"
                         :items="allTransactionExplorerDataDimensions"
-                        :model-value="currentExplorer.categoryDimension"
+                        :model-value="TransactionExplorerChartType.valueOf(currentExplorer.chartType)?.fixedCategoryDimension ?? currentExplorer.categoryDimension"
                         @update:model-value="updateCategoryDimensionType"
                     />
                     <v-select
@@ -48,6 +49,18 @@
                     </v-select>
                     <v-select
                         class="flex-0-0"
+                        min-width="220"
+                        item-title="name"
+                        item-value="value"
+                        density="compact"
+                        :disabled="loading || disabled"
+                        :label="tt('Number of Amount Ranges')"
+                        :items="allAmountRangeCounts"
+                        v-model="currentExplorer.amountRangeCount"
+                        v-if="isUsingAmountRange"
+                    />
+                    <v-select
+                        class="flex-0-0"
                         min-width="150"
                         item-title="name"
                         item-value="value"
@@ -63,7 +76,7 @@
                         item-title="displayName"
                         item-value="type"
                         density="compact"
-                        :disabled="loading || disabled"
+                        :disabled="loading || disabled || isDefined(TransactionExplorerChartType.valueOf(currentExplorer.chartType)?.fixedSortingType)"
                         :label="tt('Sort Order')"
                         :items="allTransactionExplorerChartSortingTypes"
                         v-model="currentExplorer.chartSortingType"
@@ -93,6 +106,7 @@
             :show-percent="true"
             :enable-click-item="true"
             :amount-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isAmount"
+            :percent-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isPercent"
             :default-currency="defaultCurrency"
             id-field="id"
             name-field="name"
@@ -121,6 +135,7 @@
             :show-value="true"
             :show-percent="true"
             :amount-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isAmount"
+            :percent-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isPercent"
             :default-currency="defaultCurrency"
             name-field="name"
             value-field="totalAmount"
@@ -152,8 +167,12 @@
             :all-category-names="categoriedNamesSortedByDisplayOrder"
             :items="seriesDimensionTransactionExplorerData"
             :amount-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isAmount"
+            :percent-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isPercent"
             :default-currency="defaultCurrency"
             :enable-click-item="true"
+            :tooltip-extra-column-names="axisChartTooltipExtraColumnNames"
+            :tooltip-extra-column-total-values="axisChartShowYearOverYear || axisChartShowPeriodOverPeriod ? getAxisChartTooltipExtraColumnTotalValues : undefined"
+            :tooltip-extra-column-values="axisChartShowYearOverYear || axisChartShowPeriodOverPeriod ? getAxisChartTooltipExtraColumnValues : undefined"
             id-field="id"
             name-field="name"
             values-field="categoryValues"
@@ -162,10 +181,85 @@
             v-else-if="!loading"
         />
     </v-card-text>
+    <v-card-text :class="{ 'readonly': loading }" v-else-if="TransactionExplorerChartType.valueOf(currentExplorer.chartType)?.seriesDimensionRequired && hierarchyChartDisplayType">
+        <hierarchy-chart
+            :skeleton="true"
+            :type="hierarchyChartDisplayType"
+            :all-category-names="[]"
+            :items="[]"
+            category-type-name=""
+            name-field="name"
+            values-field="values"
+            v-if="loading"
+        />
+        <hierarchy-chart
+            ref="hierarchyChart"
+            :type="hierarchyChartDisplayType"
+            :show-value="true"
+            :category-type-name="currentTransactionExplorerCategoryDimensionName"
+            :all-category-names="categoriedNamesSortedByDisplayOrder"
+            :items="seriesDimensionTransactionExplorerData"
+            :amount-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isAmount"
+            :percent-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isPercent"
+            :default-currency="defaultCurrency"
+            name-field="name"
+            values-field="categoryValues"
+            v-else-if="!loading"
+        />
+    </v-card-text>
+    <v-card-text :class="{ 'readonly': loading }" v-else-if="currentExplorer.chartType === TransactionExplorerChartType.Heatmap.value">
+        <heat-map-chart
+            :skeleton="true"
+            :all-category-names="[]"
+            :items="[]"
+            :value-type-name="tt(TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.name ?? 'Value')"
+            category-type-name=""
+            name-field="name"
+            values-field="values"
+            v-if="loading"
+        />
+        <heat-map-chart
+            ref="heatmapChart"
+            :show-value="true"
+            :category-type-name="currentTransactionExplorerCategoryDimensionName"
+            :all-category-names="categoriedNamesSortedByDisplayOrder"
+            :items="seriesDimensionTransactionExplorerData"
+            :value-type-name="tt(TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.name ?? 'Value')"
+            :amount-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isAmount"
+            :percent-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isPercent"
+            :default-currency="defaultCurrency"
+            name-field="name"
+            values-field="categoryValues"
+            v-else-if="!loading"
+        />
+    </v-card-text>
+    <v-card-text :class="{ 'readonly': loading }" v-else-if="currentExplorer.chartType === TransactionExplorerChartType.CalendarHeatmap.value">
+        <calendar-heat-map-chart
+            :skeleton="true"
+            :items="[]"
+            :value-type-name="tt(TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.name ?? 'Value')"
+            id-field="id"
+            value-field="totalAmount"
+            v-if="loading"
+        />
+        <calendar-heat-map-chart
+            :show-value="true"
+            :items="categoryDimensionTransactionExplorerData && categoryDimensionTransactionExplorerData.length ? categoryDimensionTransactionExplorerData : []"
+            :value-type-name="tt(TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.name ?? 'Value')"
+            :amount-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isAmount"
+            :percent-value="TransactionExplorerValueMetric.valueOf(currentExplorer.valueMetric)?.isPercent"
+            :default-currency="defaultCurrency"
+            id-field="id"
+            value-field="totalAmount"
+            v-else-if="!loading"
+        />
+    </v-card-text>
 </template>
 
 <script setup lang="ts">
 import AxisChart, { type AxisChartDisplayType } from '@/components/desktop/AxisChart.vue';
+import HierarchyChart, { type HierarchyChartDisplayType } from '@/components/desktop/HierarchyChart.vue';
+import HeatMapChart from '@/components/desktop/HeatMapChart.vue';
 
 import { computed, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
@@ -182,25 +276,28 @@ import {
     useExplorersStore
 } from '@/stores/explorer.ts';
 
-import { type NameValue, type TypeAndDisplayName } from '@/core/base.ts';
+import { type NameValue, type NameNumeralValue, type TypeAndDisplayName, itemAndIndex, entries } from '@/core/base.ts';
 import { NumeralSystem } from '@/core/numeral.ts';
 import { Month, WeekDay } from '@/core/datetime.ts';
 import { ChartSortingType, ExportMermaidChartType } from '@/core/statistics.ts';
 import {
-    TransactionExplorerChartType,
     TransactionExplorerDataDimensionType,
     TransactionExplorerDataDimension,
-    TransactionExplorerValueMetric
+    TransactionExplorerValueMetric,
+    TransactionExplorerChartTypeValue,
+    TransactionExplorerChartType
 } from '@/core/explorer.ts';
 
 import { type SortableTransactionStatisticDataItem } from '@/models/transaction.ts';
 import type { InsightsExplorer } from '@/models/explorer.ts';
 
-import { isDefined, findNameByValue } from '@/lib/common.ts';
-import { parseDateTimeFromString } from '@/lib/datetime.ts';
+import { isDefined, isNumber, findNameByValue } from '@/lib/common.ts';
+import { getCurrentDateTime, parseDateTimeFromString } from '@/lib/datetime.ts';
 import { sortStatisticsItems } from '@/lib/statistics.ts';
 
 type AxisChartType = InstanceType<typeof AxisChart>;
+type HierarchyChartType = InstanceType<typeof HierarchyChart>;
+type HeatMapChartType = InstanceType<typeof HeatMapChart>;
 
 interface InsightsExplorerDataTableTabProps {
     loading?: boolean;
@@ -248,18 +345,23 @@ const {
     getCurrencyName,
     formatDateTimeToShortDateTime,
     formatDateTimeToShortDate,
+    formatDateTimeToShortTime,
     formatDateTimeToGregorianLikeShortYear,
     formatDateTimeToGregorianLikeShortYearMonth,
     formatDateTimeToGregorianLikeYearQuarter,
     formatGregorianYearToGregorianLikeFiscalYear,
     formatAmountToLocalizedNumerals,
-    formatAmountToWesternArabicNumeralsWithoutDigitGrouping
+    formatAmountToWesternArabicNumeralsWithoutDigitGrouping,
+    formatNumberToLocalizedNumerals,
+    formatPercentToLocalizedNumerals
 } = useI18n();
 
 const userStore = useUserStore();
 const explorersStore = useExplorersStore();
 
 const axisChart = useTemplateRef<AxisChartType>('axisChart');
+const hierarchyChart = useTemplateRef<HierarchyChartType>('hierarchyChart');
+const heatmapChart = useTemplateRef<HeatMapChartType>('heatmapChart');
 
 const defaultCurrency = computed<string>(() => userStore.currentUserDefaultCurrency);
 
@@ -270,9 +372,22 @@ const allTransactionExplorerChartSortingTypes = computed<TypeAndDisplayName[]>((
 const currentTransactionExplorerCategoryDimensionName = computed<string>(() => findNameByValue(allTransactionExplorerDataDimensions.value, currentExplorer.value.categoryDimension) ?? tt('Unknown'));
 
 const currentExplorer = computed<InsightsExplorer>(() => explorersStore.currentInsightsExplorer);
+const isUsingAmountRange = computed<boolean>(() => explorersStore.isUsingAmountRange);
+
+const allAmountRangeCounts = computed<NameNumeralValue[]>(() => {
+    const pageCounts: NameNumeralValue[] = [];
+
+    for (let i = 3; i <= 20; i++) {
+        pageCounts.push({ value: i, name: formatNumberToLocalizedNumerals(i) });
+    }
+
+    return pageCounts;
+});
 
 const categoryDimensionTransactionExplorerData = computed<CategoryDimensionData[]>(() => {
-    if (currentExplorer.value.chartType !== TransactionExplorerChartType.Pie.value && currentExplorer.value.chartType !== TransactionExplorerChartType.Radar.value) {
+    if (currentExplorer.value.chartType !== TransactionExplorerChartType.Pie.value
+        && currentExplorer.value.chartType !== TransactionExplorerChartType.Radar.value
+        && currentExplorer.value.chartType !== TransactionExplorerChartType.CalendarHeatmap.value) {
         return [];
     }
 
@@ -397,6 +512,76 @@ const seriesDimensionTransactionExplorerData = computed<SeriesDimensionData[]>((
     return result;
 });
 
+const seriesDimensionTransactionExplorerDataMap = computed<Record<string, SeriesDimensionData>>(() => {
+    const result: Record<string, SeriesDimensionData> = {};
+
+    for (const seriesDimensionData of seriesDimensionTransactionExplorerData.value) {
+        result[seriesDimensionData.id] = seriesDimensionData;
+    }
+
+    return result;
+});
+
+const axisChartCategoryIndexYoYMap = computed<Record<number, number>>(() => {
+    const result: Record<number, number> = {};
+
+    if (!axisChartShowYearOverYear.value) {
+        return result;
+    }
+
+    const dateKeyToIndex: Record<string, number> = {};
+    const dateKeyToPreviousYearDateKey: Record<string, string> = {};
+
+    for (const [item, categoryIndex] of itemAndIndex(categoriedDataSortedByDisplayOrder.value)) {
+        const categoriedData = item.originalItem;
+        const name = categoriedData.categoryId;
+        const dimessionType = categoriedData.categoryIdType;
+        const dimension = currentExplorer.value.categoryDimension;
+
+        if (dimension === TransactionExplorerDataDimension.DateTimeByYearMonthDay.value) {
+            const dateTime = parseDateTimeFromString(name, dimessionType);
+
+            if (dateTime) {
+                dateKeyToIndex[dateTime.getGregorianCalendarYearDashMonthDashDay()] = categoryIndex;
+                dateKeyToPreviousYearDateKey[dateTime.getGregorianCalendarYearDashMonthDashDay()] = dateTime.add(-1, 'years').getGregorianCalendarYearDashMonthDashDay();
+            }
+        } else if (dimension === TransactionExplorerDataDimension.DateTimeByYearMonth.value) {
+            const dateTime = parseDateTimeFromString(name, dimessionType);
+
+            if (dateTime) {
+                dateKeyToIndex[dateTime.getGregorianCalendarYearDashMonth()] = categoryIndex;
+                dateKeyToPreviousYearDateKey[dateTime.getGregorianCalendarYearDashMonth()] = dateTime.add(-1, 'years').getGregorianCalendarYearDashMonth();
+            }
+        } else if (dimension === TransactionExplorerDataDimension.DateTimeByYearQuarter.value) {
+            const parts = name.split('-');
+            const year = parts.length === 2 ? parseInt(parts[0] as string) : 0;
+            const quarter = parts.length === 2 ? parseInt(parts[1] as string) : 0;
+
+            dateKeyToIndex[`${year}-Q${quarter}`] = categoryIndex;
+            dateKeyToPreviousYearDateKey[`${year}-Q${quarter}`] = `${year - 1}-Q${quarter}`;
+        } else if (dimension === TransactionExplorerDataDimension.DateTimeByYear.value) {
+            const year = parseInt(name);
+            dateKeyToIndex[name] = categoryIndex;
+            dateKeyToPreviousYearDateKey[name] = (year - 1).toString(10);
+        } else if (dimension === TransactionExplorerDataDimension.DateTimeByFiscalYear.value) {
+            const year = parseInt(name);
+            dateKeyToIndex[name] = categoryIndex;
+            dateKeyToPreviousYearDateKey[name] = (year - 1).toString(10);
+        }
+    }
+
+    for (const [dateKey, previousYearDateKey] of entries(dateKeyToPreviousYearDateKey)) {
+        const categoryIndex = dateKeyToIndex[dateKey];
+        const previousYearCategoryIndex = dateKeyToIndex[previousYearDateKey];
+
+        if (isNumber(categoryIndex) && isNumber(previousYearCategoryIndex)) {
+            result[categoryIndex] = previousYearCategoryIndex;
+        }
+    }
+
+    return result;
+});
+
 const axisChartDisplayType = computed<AxisChartDisplayType | undefined>(() => {
     if (currentExplorer.value.chartType === TransactionExplorerChartType.ColumnStacked.value
         || currentExplorer.value.chartType === TransactionExplorerChartType.Column100PercentStacked.value
@@ -414,6 +599,16 @@ const axisChartDisplayType = computed<AxisChartDisplayType | undefined>(() => {
     }
 });
 
+const hierarchyChartDisplayType = computed<HierarchyChartDisplayType | undefined>(() => {
+    if (currentExplorer.value.chartType === TransactionExplorerChartType.Treemap.value) {
+        return 'treemap';
+    } else if (currentExplorer.value.chartType === TransactionExplorerChartType.Sunburst.value) {
+        return 'sunburst';
+    } else {
+        return undefined;
+    }
+});
+
 const axisChartStacked = computed<boolean>(() => {
     return (currentExplorer.value.chartType === TransactionExplorerChartType.ColumnStacked.value
         || currentExplorer.value.chartType === TransactionExplorerChartType.Column100PercentStacked.value
@@ -426,27 +621,69 @@ const axisChart100PercentStacked = computed<boolean>(() => {
         || currentExplorer.value.chartType === TransactionExplorerChartType.Area100PercentStacked.value);
 });
 
+const axisChartShowYearOverYear = computed<boolean>(() => {
+    const dimession = currentExplorer.value.categoryDimension;
+
+    return dimession === TransactionExplorerDataDimension.DateTimeByYearMonthDay.value
+        || dimession === TransactionExplorerDataDimension.DateTimeByYearMonth.value
+        || dimession === TransactionExplorerDataDimension.DateTimeByYearQuarter.value
+        || dimession === TransactionExplorerDataDimension.DateTimeByYear.value
+        || dimession === TransactionExplorerDataDimension.DateTimeByFiscalYear.value;
+});
+
+const axisChartShowPeriodOverPeriod = computed<boolean>(() => {
+    const dimession = currentExplorer.value.categoryDimension;
+
+    return dimession === TransactionExplorerDataDimension.DateTimeByYearMonthDay.value
+        || dimession === TransactionExplorerDataDimension.DateTimeByYearMonth.value
+        || dimession === TransactionExplorerDataDimension.DateTimeByYearQuarter.value;
+});
+
+const axisChartTooltipExtraColumnNames = computed<string[]>(() => {
+    const extraColumnNames: string[] = [];
+    const dimession = currentExplorer.value.categoryDimension;
+
+    if (axisChartShowYearOverYear.value) {
+        extraColumnNames.push(tt('Year-over-Year'));
+    }
+
+    if (axisChartShowPeriodOverPeriod.value) {
+        if (dimession === TransactionExplorerDataDimension.DateTimeByYearQuarter.value) {
+            extraColumnNames.push(tt('Quarter-over-Quarter'));
+        } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearMonth.value) {
+            extraColumnNames.push(tt('Month-over-Month'));
+        } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearMonthDay.value) {
+            extraColumnNames.push(tt('Day-over-Day'));
+        } else {
+            extraColumnNames.push(tt('Period-over-Period'));
+        }
+    }
+
+    return extraColumnNames;
+});
+
 function getCategoriedDataDisplayName(info: CategoriedInfo | SeriesInfo): string {
     let name: string = '';
     let needI18n: boolean | undefined = false;
     let i18nParameters: Record<string, unknown> | undefined = undefined;
     let dimessionType: TransactionExplorerDimensionType = TransactionExplorerDimensionType.Other;
-    let dimession: TransactionExplorerDataDimensionType = TransactionExplorerDataDimension.None.value;
+    let dimessionValue: TransactionExplorerDataDimensionType = TransactionExplorerDataDimension.None.value;
 
     if ('categoryName' in info) {
         name = info.categoryName;
         needI18n = info.categoryNameNeedI18n;
         i18nParameters = info.categoryNameI18nParameters;
         dimessionType = info.categoryIdType;
-        dimession = currentExplorer.value.categoryDimension;
+        dimessionValue = currentExplorer.value.categoryDimension;
     } else if ('seriesName' in info) {
         name = info.seriesName;
         needI18n = info.seriesNameNeedI18n;
         i18nParameters = info.seriesNameI18nParameters;
         dimessionType = info.seriesIdType;
-        dimession = currentExplorer.value.seriesDimension;
+        dimessionValue = currentExplorer.value.seriesDimension;
     }
 
+    const dimession = TransactionExplorerDataDimension.valueOf(dimessionValue);
     let displayName: string = name;
 
     // convert the name to i18n if needed
@@ -457,51 +694,194 @@ function getCategoriedDataDisplayName(info: CategoriedInfo | SeriesInfo): string
     }
 
     // convert the name to formatted date time if needed
-    if (dimession === TransactionExplorerDataDimension.DateTime.value) {
+    if (dimession === TransactionExplorerDataDimension.DateTime) {
         const dateTime = parseDateTimeFromString(name, dimessionType);
         displayName = dateTime ? formatDateTimeToShortDateTime(dateTime) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearMonthDay.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearMonthDay) {
         const dateTime = parseDateTimeFromString(name, dimessionType);
         displayName = dateTime ? formatDateTimeToShortDate(dateTime) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearMonth.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearMonth) {
         const dateTime = parseDateTimeFromString(name, dimessionType);
         displayName = dateTime ? formatDateTimeToGregorianLikeShortYearMonth(dateTime) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearQuarter.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYearQuarter) {
         const parts = name.split('-');
         const year = parts.length === 2 ? parts[0] : '';
         const quarter = parts.length === 2 ? parseInt(parts[1] as string) : 0;
         const quarterLastMonth = quarter * 3;
         const dateTime = year && quarterLastMonth ? parseDateTimeFromString(`${year}-${quarterLastMonth.toString(10).padStart(2, NumeralSystem.WesternArabicNumerals.digitZero)}`, TransactionExplorerDimensionType.YearMonth) : undefined;
         displayName = dateTime ? formatDateTimeToGregorianLikeYearQuarter(dateTime) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYear.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByYear) {
         const dateTime = parseDateTimeFromString(name, dimessionType);
         displayName = dateTime ? formatDateTimeToGregorianLikeShortYear(dateTime) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByFiscalYear.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByFiscalYear) {
         displayName = formatGregorianYearToGregorianLikeFiscalYear(parseInt(name));
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByDayOfWeek.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByDayOfWeek) {
         const weekDay = WeekDay.parse(name);
         displayName = weekDay ? getWeekdayLongName(weekDay) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByDayOfMonth.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByDayOfMonth) {
         displayName = getMonthdayShortName(parseInt(name));
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByMonthOfYear.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByMonthOfYear) {
         const month = Month.valueOf(parseInt(name));
         displayName = month ? getMonthLongName(month.name) : tt('Unknown');
-    } else if (dimession === TransactionExplorerDataDimension.DateTimeByQuarterOfYear.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByQuarterOfYear) {
         displayName = getQuarterName(parseInt(name));
-    } else if (dimession === TransactionExplorerDataDimension.SourceAccountCurrency.value || dimession === TransactionExplorerDataDimension.DestinationAccountCurrency.value) {
+    } else if (dimession === TransactionExplorerDataDimension.DateTimeByHourOfDay) {
+        const dateTime = getCurrentDateTime().set({
+            hour: parseInt(name),
+            minute: 0,
+            second: 0,
+            millisecond: 0
+        });
+        displayName = formatDateTimeToShortTime(dateTime);
+    } else if (dimession === TransactionExplorerDataDimension.SourceAccountCurrency || dimession === TransactionExplorerDataDimension.DestinationAccountCurrency) {
         if (!needI18n) {
             displayName = getCurrencyName(name);
         }
     }
 
-    if (dimession === TransactionExplorerDataDimension.SourceAmount.value
-        || dimession === TransactionExplorerDataDimension.DestinationAmount.value) {
+    if (dimession === TransactionExplorerDataDimension.SourceAmount
+        || dimession === TransactionExplorerDataDimension.DestinationAmount) {
         if (name !== '' && name !== 'none' && Number.isFinite(parseInt(name))) {
-            displayName = formatAmountToLocalizedNumerals(parseInt(name));
+            displayName = formatAmountToLocalizedNumerals(parseInt(name), defaultCurrency.value);
+        }
+    }
+
+    if (dimession?.isSourceAmountRange || dimession?.isDestinationAmountRange) {
+        const rangeParts = name.split('|');
+
+        if (rangeParts && rangeParts.length === 2 && Number.isFinite(parseInt(rangeParts[0] as string)) && Number.isFinite(parseInt(rangeParts[1] as string))) {
+            const from = formatAmountToLocalizedNumerals(parseInt(rangeParts[0] as string), defaultCurrency.value);
+            const to = formatAmountToLocalizedNumerals(parseInt(rangeParts[1] as string), defaultCurrency.value);
+            displayName = `${from} ~ ${to}`;
         }
     }
 
     return displayName;
+}
+
+function formatDisplayChangeRate(current: number, reference: number): string {
+    if (reference === 0 && current === 0) {
+        return formatPercentToLocalizedNumerals(0, 2, '<0.01');
+    }
+
+    if (reference === 0) {
+        return '-';
+    }
+
+    const rate = (current - reference) / reference * 100;
+    return formatPercentToLocalizedNumerals(rate, 2, '<0.01');
+}
+
+function getAxisChartTooltipExtraColumnTotalValues(categoryIndex: number, totalValue: number, visibleSeriesIds: string[]): string[] {
+    const extraColumnValues: string[] = [];
+
+    if (!axisChartShowYearOverYear.value && !axisChartShowPeriodOverPeriod.value) {
+        return extraColumnValues;
+    }
+
+    if (axisChartShowYearOverYear.value) {
+        const yoyReferenceIndex = axisChartCategoryIndexYoYMap.value[categoryIndex];
+        let displayChangeRate = '-';
+
+        if (isNumber(yoyReferenceIndex)) {
+            let referenceTotalValue = 0;
+
+            for (const seriesId of visibleSeriesIds) {
+                const seriesDimensionData = seriesDimensionTransactionExplorerDataMap.value[seriesId];
+
+                if (seriesDimensionData && seriesDimensionData.categoryValues) {
+                    referenceTotalValue += seriesDimensionData.categoryValues[yoyReferenceIndex] ?? 0;
+                }
+            }
+
+            displayChangeRate = formatDisplayChangeRate(totalValue, referenceTotalValue);
+        }
+
+        extraColumnValues.push(displayChangeRate);
+    }
+
+    if (axisChartShowPeriodOverPeriod.value) {
+        const popReferenceIndex = categoryIndex - 1;
+        let displayChangeRate = '-';
+
+        if (popReferenceIndex >= 0) {
+            let referenceTotalValue = 0;
+
+            for (const seriesId of visibleSeriesIds) {
+                const seriesDimensionData = seriesDimensionTransactionExplorerDataMap.value[seriesId];
+
+                if (seriesDimensionData && seriesDimensionData.categoryValues) {
+                    referenceTotalValue += seriesDimensionData.categoryValues[popReferenceIndex] ?? 0;
+                }
+            }
+
+            displayChangeRate = formatDisplayChangeRate(totalValue, referenceTotalValue);
+        }
+
+        extraColumnValues.push(displayChangeRate);
+    }
+
+    return extraColumnValues;
+}
+
+function getAxisChartTooltipExtraColumnValues(seriesId: string, categoryIndex: number, currentValue: number): string[] {
+    const extraColumnValues: string[] = [];
+
+    if (!axisChartShowYearOverYear.value && !axisChartShowPeriodOverPeriod.value) {
+        return extraColumnValues;
+    }
+
+    const seriesDimensionData = seriesDimensionTransactionExplorerDataMap.value[seriesId];
+
+    if (!seriesDimensionData || !seriesDimensionData.categoryValues) {
+        return extraColumnValues;
+    }
+
+    const values = seriesDimensionData.categoryValues;
+
+    if (axisChartShowYearOverYear.value) {
+        const yoyReferenceIndex = axisChartCategoryIndexYoYMap.value[categoryIndex];
+        let displayChangeRate = '-';
+
+        if (isNumber(yoyReferenceIndex) && yoyReferenceIndex >= 0 && yoyReferenceIndex < values.length) {
+            displayChangeRate = formatDisplayChangeRate(currentValue, values[yoyReferenceIndex] ?? 0);
+        }
+
+        extraColumnValues.push(displayChangeRate);
+    }
+
+    if (axisChartShowPeriodOverPeriod.value) {
+        const popReferenceIndex = categoryIndex - 1;
+        let displayChangeRate = '-';
+
+        if (popReferenceIndex >= 0 && popReferenceIndex < values.length) {
+            displayChangeRate = formatDisplayChangeRate(currentValue, values[popReferenceIndex] ?? 0);
+        }
+
+        extraColumnValues.push(displayChangeRate);
+    }
+
+    return extraColumnValues;
+}
+
+function updateChartType(chartTypeValue: TransactionExplorerChartTypeValue): void {
+    if (currentExplorer.value.chartType !== chartTypeValue) {
+        currentExplorer.value.chartType = chartTypeValue;
+    }
+
+    const chartType = TransactionExplorerChartType.valueOf(chartTypeValue);
+
+    if (isDefined(chartType?.fixedCategoryDimension)) {
+        currentExplorer.value.categoryDimension = chartType.fixedCategoryDimension;
+    }
+
+    if (!chartType?.seriesDimensionRequired) {
+        currentExplorer.value.seriesDimension = TransactionExplorerDataDimension.None.value;
+    }
+
+    if (isDefined(chartType?.fixedSortingType)) {
+        currentExplorer.value.chartSortingType = chartType.fixedSortingType;
+    }
 }
 
 function updateCategoryDimensionType(dimensionType: TransactionExplorerDataDimensionType): void {
@@ -540,7 +920,7 @@ function onClickTrendChartItem(itemId: string, categoryIndex: number): void {
 }
 
 function buildExportResults(): { headers: string[], data: string[][], supportedMermaidCharts?: ExportMermaidChartType[] } | undefined {
-    if (currentExplorer.value.chartType === TransactionExplorerChartType.Pie.value || currentExplorer.value.chartType === TransactionExplorerChartType.Radar.value) {
+    if (currentExplorer.value.chartType === TransactionExplorerChartType.Pie.value || currentExplorer.value.chartType === TransactionExplorerChartType.Radar.value || currentExplorer.value.chartType === TransactionExplorerChartType.CalendarHeatmap.value) {
         const valueMetric = TransactionExplorerValueMetric.valueOf(currentExplorer.value.valueMetric);
         let supportedMermaidCharts: ExportMermaidChartType[] | undefined = undefined;
 
@@ -555,7 +935,7 @@ function buildExportResults(): { headers: string[], data: string[][], supportedM
             ],
             data: categoryDimensionTransactionExplorerData.value.map(data => [
                 data.name,
-                valueMetric?.isAmount ? formatAmountToWesternArabicNumeralsWithoutDigitGrouping(data.totalAmount) : data.totalAmount.toString(10)
+                valueMetric?.isAmount ? formatAmountToWesternArabicNumeralsWithoutDigitGrouping(data.totalAmount, defaultCurrency.value) : data.totalAmount.toString(10)
             ]),
             supportedMermaidCharts: supportedMermaidCharts
         };
@@ -591,6 +971,30 @@ function buildExportResults(): { headers: string[], data: string[][], supportedM
             headers: results.headers,
             data: results.data,
             supportedMermaidCharts: supportedMermaidCharts
+        };
+    } else if (TransactionExplorerChartType.valueOf(currentExplorer.value.chartType)?.seriesDimensionRequired && hierarchyChartDisplayType.value) {
+        const results = hierarchyChart.value?.exportData();
+
+        if (!results) {
+            return undefined;
+        }
+
+        return {
+            headers: results.headers,
+            data: results.data,
+            supportedMermaidCharts: undefined
+        };
+    } else if (TransactionExplorerChartType.valueOf(currentExplorer.value.chartType)?.seriesDimensionRequired && currentExplorer.value.chartType === TransactionExplorerChartType.Heatmap.value) {
+        const results = heatmapChart.value?.exportData();
+
+        if (!results) {
+            return undefined;
+        }
+
+        return {
+            headers: results.headers,
+            data: results.data,
+            supportedMermaidCharts: undefined
         };
     } else {
         return undefined;

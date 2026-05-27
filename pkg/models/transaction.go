@@ -210,65 +210,69 @@ type TransactionTagFilter struct {
 
 // TransactionCountRequest represents transaction count request
 type TransactionCountRequest struct {
-	Type         TransactionType `form:"type" binding:"min=0,max=4"`
-	CategoryIds  string          `form:"category_ids"`
-	AccountIds   string          `form:"account_ids"`
-	TagFilter    string          `form:"tag_filter" binding:"validTagFilter"`
-	AmountFilter string          `form:"amount_filter" binding:"validAmountFilter"`
-	Keyword      string          `form:"keyword"`
-	MaxTime      int64           `form:"max_time" binding:"min=0"` // Transaction time sequence id
-	MinTime      int64           `form:"min_time" binding:"min=0"` // Transaction time sequence id
+	Type             TransactionType `form:"type" binding:"min=0,max=4"`
+	CategoryIds      string          `form:"category_ids"`
+	AccountIds       string          `form:"account_ids"`
+	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
+	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	Keyword          string          `form:"keyword"`
+	MustHavePictures bool            `form:"must_have_pictures"`
+	MaxTime          int64           `form:"max_time" binding:"min=0"` // Transaction time sequence id
+	MinTime          int64           `form:"min_time" binding:"min=0"` // Transaction time sequence id
 }
 
 // TransactionListByMaxTimeRequest represents all parameters of transaction listing by max time request
 type TransactionListByMaxTimeRequest struct {
-	Type         TransactionType `form:"type" binding:"min=0,max=4"`
-	CategoryIds  string          `form:"category_ids"`
-	AccountIds   string          `form:"account_ids"`
-	TagFilter    string          `form:"tag_filter" binding:"validTagFilter"`
-	AmountFilter string          `form:"amount_filter" binding:"validAmountFilter"`
-	Keyword      string          `form:"keyword"`
-	MaxTime      int64           `form:"max_time" binding:"min=0"` // Transaction time sequence id
-	MinTime      int64           `form:"min_time" binding:"min=0"` // Transaction time sequence id
-	Page         int32           `form:"page" binding:"min=0"`
-	Count        int32           `form:"count" binding:"required,min=1,max=50"`
-	WithCount    bool            `form:"with_count"`
-	WithPictures bool            `form:"with_pictures"`
-	TrimAccount  bool            `form:"trim_account"`
-	TrimCategory bool            `form:"trim_category"`
-	TrimTag      bool            `form:"trim_tag"`
+	Type             TransactionType `form:"type" binding:"min=0,max=4"`
+	CategoryIds      string          `form:"category_ids"`
+	AccountIds       string          `form:"account_ids"`
+	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
+	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	Keyword          string          `form:"keyword"`
+	MustHavePictures bool            `form:"must_have_pictures"`
+	MaxTime          int64           `form:"max_time" binding:"min=0"` // Transaction time sequence id
+	MinTime          int64           `form:"min_time" binding:"min=0"` // Transaction time sequence id
+	Page             int32           `form:"page" binding:"min=0"`
+	Count            int32           `form:"count" binding:"required,min=1,max=50"`
+	WithCount        bool            `form:"with_count"`
+	WithPictures     bool            `form:"with_pictures"`
+	TrimAccount      bool            `form:"trim_account"`
+	TrimCategory     bool            `form:"trim_category"`
+	TrimTag          bool            `form:"trim_tag"`
 }
 
 // TransactionListInMonthByPageRequest represents all parameters of transaction listing by month request
 type TransactionListInMonthByPageRequest struct {
-	Year         int32           `form:"year" binding:"required,min=1"`
-	Month        int32           `form:"month" binding:"required,min=1"`
-	Type         TransactionType `form:"type" binding:"min=0,max=4"`
-	CategoryIds  string          `form:"category_ids"`
-	AccountIds   string          `form:"account_ids"`
-	TagFilter    string          `form:"tag_filter" binding:"validTagFilter"`
-	AmountFilter string          `form:"amount_filter" binding:"validAmountFilter"`
-	Keyword      string          `form:"keyword"`
-	WithPictures bool            `form:"with_pictures"`
-	TrimAccount  bool            `form:"trim_account"`
-	TrimCategory bool            `form:"trim_category"`
-	TrimTag      bool            `form:"trim_tag"`
+	Year             int32           `form:"year" binding:"required,min=1"`
+	Month            int32           `form:"month" binding:"required,min=1"`
+	Type             TransactionType `form:"type" binding:"min=0,max=4"`
+	CategoryIds      string          `form:"category_ids"`
+	AccountIds       string          `form:"account_ids"`
+	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
+	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	Keyword          string          `form:"keyword"`
+	MustHavePictures bool            `form:"must_have_pictures"`
+	WithPictures     bool            `form:"with_pictures"`
+	TrimAccount      bool            `form:"trim_account"`
+	TrimCategory     bool            `form:"trim_category"`
+	TrimTag          bool            `form:"trim_tag"`
 }
 
 // TransactionAllListRequest represents all parameters of all transaction listing request
 type TransactionAllListRequest struct {
-	Type         TransactionType `form:"type" binding:"min=0,max=4"`
-	CategoryIds  string          `form:"category_ids"`
-	AccountIds   string          `form:"account_ids"`
-	TagFilter    string          `form:"tag_filter" binding:"validTagFilter"`
-	AmountFilter string          `form:"amount_filter" binding:"validAmountFilter"`
-	Keyword      string          `form:"keyword"`
-	StartTime    int64           `form:"start_time" binding:"min=0"`
-	EndTime      int64           `form:"end_time" binding:"min=0"`
-	WithPictures bool            `form:"with_pictures"`
-	TrimAccount  bool            `form:"trim_account"`
-	TrimCategory bool            `form:"trim_category"`
-	TrimTag      bool            `form:"trim_tag"`
+	Type             TransactionType `form:"type" binding:"min=0,max=4"`
+	CategoryIds      string          `form:"category_ids"`
+	AccountIds       string          `form:"account_ids"`
+	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
+	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	Keyword          string          `form:"keyword"`
+	MustHavePictures bool            `form:"must_have_pictures"`
+	StartTime        int64           `form:"start_time" binding:"min=0"`
+	EndTime          int64           `form:"end_time" binding:"min=0"`
+	WithPictures     bool            `form:"with_pictures"`
+	TrimAccount      bool            `form:"trim_account"`
+	TrimCategory     bool            `form:"trim_category"`
+	TrimTag          bool            `form:"trim_tag"`
 }
 
 // TransactionReconciliationStatementRequest represents all parameters of transaction reconciliation statement request
@@ -325,6 +329,36 @@ type TransactionGetRequest struct {
 	TrimTag      bool  `form:"trim_tag"`
 }
 
+// TransactionBatchUpdateCategoryRequest represents all parameters of transaction batch update category request
+type TransactionBatchUpdateCategoryRequest struct {
+	TransactionIds []string `json:"transactionIds" binding:"required"`
+	CategoryId     int64    `json:"categoryId,string" binding:"required"`
+}
+
+// TransactionBatchUpdateAccountRequest represents all parameters of transaction batch update account request
+type TransactionBatchUpdateAccountRequest struct {
+	TransactionIds       []string `json:"transactionIds" binding:"required"`
+	AccountId            int64    `json:"accountId,string" binding:"required"`
+	IsDestinationAccount bool     `json:"isDestinationAccount"`
+}
+
+// TransactionBatchAddTagsRequest represents all parameters of transaction batch add tags request
+type TransactionBatchAddTagsRequest struct {
+	TransactionIds []string `json:"transactionIds" binding:"required"`
+	TagIds         []string `json:"tagIds" binding:"required"`
+}
+
+// TransactionBatchRemoveTagsRequest represents all parameters of transaction batch remove tags request
+type TransactionBatchRemoveTagsRequest struct {
+	TransactionIds []string `json:"transactionIds" binding:"required"`
+	TagIds         []string `json:"tagIds" binding:"required"`
+}
+
+// TransactionBatchClearTagsRequest represents all parameters of transaction batch clear tags request
+type TransactionBatchClearTagsRequest struct {
+	TransactionIds []string `json:"transactionIds" binding:"required"`
+}
+
 // TransactionMoveBetweenAccountsRequest represents all parameters of moving all transactions between accounts request
 type TransactionMoveBetweenAccountsRequest struct {
 	FromAccountId int64 `json:"fromAccountId,string" binding:"required,min=1"`
@@ -334,6 +368,12 @@ type TransactionMoveBetweenAccountsRequest struct {
 // TransactionDeleteRequest represents all parameters of transaction deleting request
 type TransactionDeleteRequest struct {
 	Id int64 `json:"id,string" binding:"required,min=1"`
+}
+
+// TransactionBatchDeleteRequest represents all parameters of transaction batch deleting request
+type TransactionBatchDeleteRequest struct {
+	Ids      []string `json:"ids,string" binding:"required"`
+	Password string   `json:"password" binding:"omitempty,min=6,max=128"`
 }
 
 // YearMonthRangeRequest represents all parameters of a request with year and month range
@@ -513,10 +553,6 @@ func ParseTransactionTagFilter(tagFilterStr string) ([]*TransactionTagFilter, er
 
 // IsEditable returns whether this transaction can be edited
 func (t *Transaction) IsEditable(currentUser *User, clientTimezone *time.Location, account *Account, relatedAccount *Account) bool {
-	if currentUser == nil || !currentUser.CanEditTransactionByTransactionTime(t.TransactionTime, clientTimezone) {
-		return false
-	}
-
 	if account == nil || account.Hidden {
 		return false
 	}
@@ -525,6 +561,10 @@ func (t *Transaction) IsEditable(currentUser *User, clientTimezone *time.Locatio
 		if relatedAccount == nil || relatedAccount.Hidden {
 			return false
 		}
+	}
+
+	if currentUser == nil || !currentUser.CanEditTransactionByTransactionTime(t.TransactionTime, clientTimezone, account, relatedAccount) {
+		return false
 	}
 
 	return true
