@@ -10,10 +10,11 @@
                 <span id="numpad-value" class="numpad-value" :class="currentDisplayNumClass">{{ currentDisplay }}</span>
             </div>
 
-            <f7-popover class="numpad-paste-popover" target-el="#numpad-value"
+            <f7-popover class="paste-context-menu-popover" target-el="#numpad-value"
                         v-model:opened="showPastePopover">
-                <f7-list class="numpad-paste-popover-context-menu-list">
-                    <f7-list-item link="#" no-chevron :title="tt('Paste')" @click="paste"></f7-list-item>
+                <f7-list class="paste-context-menu">
+                    <f7-list-item link="#" no-chevron popover-close
+                                  :title="tt('Paste')" @click="paste"></f7-list-item>
                 </f7-list>
             </f7-popover>
 
@@ -84,10 +85,11 @@ import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/locales/helpers.ts';
 import { useI18nUIComponents, isiOS } from '@/lib/ui/mobile.ts';
 
-import { NumeralSystem } from '@/core/numeral.ts';
+import { type BigDecimal, NumeralSystem } from '@/core/numeral.ts';
 import { AMOUNT_FACTOR } from '@/consts/numeral.ts';
 import { ALL_CURRENCIES } from '@/consts/currency.ts';
 import { isNumber } from '@/lib/common.ts';
+import { BIG_DECIMAL_ZERO, parseBigDecimal, isBigDecimal } from '@/lib/numeral.ts';
 import logger from '@/lib/logger.ts';
 
 const props = defineProps<{
@@ -162,7 +164,9 @@ const currentDisplay = computed<string>(() => {
 });
 
 const currentDisplayNumClass = computed<string>(() => {
-    if (currentDisplay.value && currentDisplay.value.length >= 24) {
+    if (currentDisplay.value && currentDisplay.value.length >= 28) {
+        return 'numpad-value-extra-small';
+    } else if (currentDisplay.value && currentDisplay.value.length >= 22) {
         return 'numpad-value-small';
     } else if (currentDisplay.value && currentDisplay.value.length >= 16) {
         return 'numpad-value-normal';
@@ -184,11 +188,11 @@ function getInitedStringValue(value: number, flipNegative?: boolean): string {
         value = -value;
     }
 
-    return getStringValue(value, true);
+    return getStringValue(parseBigDecimal(value), true);
 }
 
-function getStringValue(value: number, hideZero: boolean): string {
-    if (!isNumber(value)) {
+function getStringValue(value: BigDecimal, hideZero: boolean): string {
+    if (!isBigDecimal(value)) {
         return '';
     }
 
@@ -329,8 +333,6 @@ function clear(): void {
 }
 
 function paste(): void {
-    showPastePopover.value = false;
-
     if (pastingAmount.value) {
         pastingAmount.value = false;
         return;
@@ -366,7 +368,7 @@ function paste(): void {
             }
         }
 
-        currentValue.value = getStringValue(parsedAmount, false);
+        currentValue.value = getStringValue(parseBigDecimal(parsedAmount), false);
     }).catch(error => {
         // Do not set pastingAmount to false here
         // In iOS, system will show the paste context menu, if user click outside, the paste action should not be triggered again
@@ -376,33 +378,33 @@ function paste(): void {
 
 function confirm(): boolean {
     if (currentSymbol.value && currentValue.value.length >= 1) {
-        const previous = parseAmountFromWesternArabicNumerals(previousValue.value);
-        const current = parseAmountFromWesternArabicNumerals(currentValue.value);
-        let finalValue = 0;
+        const previous: BigDecimal = parseBigDecimal(parseAmountFromWesternArabicNumerals(previousValue.value));
+        const current: BigDecimal = parseBigDecimal(parseAmountFromWesternArabicNumerals(currentValue.value));
+        let finalValue: BigDecimal = BIG_DECIMAL_ZERO;
 
         switch (currentSymbol.value) {
             case '+':
-                finalValue = previous + current;
+                finalValue = previous.add(current);
                 break;
             case '−':
-                finalValue = previous - current;
+                finalValue = previous.subtract(current);
                 break;
             case '×':
-                finalValue = Math.trunc(previous * current / AMOUNT_FACTOR);
+                finalValue = previous.multiply(current).divide(AMOUNT_FACTOR).truncate();
                 break;
             default:
                 finalValue = previous;
         }
 
         if (isNumber(props.minValue)) {
-            if (finalValue < (props.minValue)) {
+            if (finalValue.lessThan(props.minValue)) {
                 showToast('Numeric Overflow');
                 return false;
             }
         }
 
         if (isNumber(props.maxValue)) {
-            if (finalValue > (props.maxValue)) {
+            if (finalValue.greaterThan(props.maxValue)) {
                 showToast('Numeric Overflow');
                 return false;
             }
@@ -484,6 +486,10 @@ watch(() => props.flipNegative, (newValue) => {
     user-select: none;
 }
 
+.numpad-value-extra-small {
+    font-size: var(--ebk-numpad-value-extra-small-font-size);
+}
+
 .numpad-value-small {
     font-size: var(--ebk-numpad-value-small-font-size);
 }
@@ -552,33 +558,5 @@ watch(() => props.flipNegative, (newValue) => {
 
 .numpad-button-text-confirm {
     font-size: var(--ebk-numpad-confirm-button-font-size);
-}
-
-.numpad-paste-popover.popover {
-    width: auto;
-
-    .numpad-paste-popover-context-menu-list.list {
-        :first-child li:first-child a {
-            &.active-state {
-                border-radius: unset;
-            }
-
-            > .item-content {
-                min-height: var(--ebk-popover-context-menu-min-height);
-
-                > .item-inner {
-                    min-height: var(--ebk-popover-context-menu-min-height);
-                    padding-top: var(--ebk-popover-context-menu-vertical-padding);
-                    padding-bottom: var(--ebk-popover-context-menu-vertical-padding);
-                    padding-left: var(--ebk-popover-context-menu-left-padding);
-                    padding-right: var(--ebk-popover-context-menu-right-padding);
-
-                    > .item-title {
-                        font-size: var(--ebk-popover-context-menu-button-font-size);
-                    }
-                }
-            }
-        }
-    }
 }
 </style>

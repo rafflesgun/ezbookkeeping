@@ -9,12 +9,12 @@
             </f7-nav-right>
         </f7-navbar>
 
-        <f7-list strong inset dividers class="margin-vertical skeleton-text" v-if="loading">
+        <f7-list strong inset dividers class="margin-vertical-half skeleton-text" v-if="loading">
             <f7-list-item class="list-item-with-header-and-title" header="Account Category" title="Category"></f7-list-item>
             <f7-list-item class="list-item-with-header-and-title" header="Account Type" title="Account Type"></f7-list-item>
         </f7-list>
 
-        <f7-list form strong inset dividers class="margin-vertical" v-else-if="!loading">
+        <f7-list form strong inset dividers class="margin-vertical-half" v-else-if="!loading">
             <f7-list-item
                 link="#" no-chevron
                 class="list-item-with-header-and-title"
@@ -214,14 +214,14 @@
                                   :currency="account.currency"
                                   :flip-negative="account.isLiability"
                                   v-model:show="accountContext.showBalanceSheet"
-                                  v-model="account.balance"
+                                  v-model="account.numericBalance"
                 ></number-pad-sheet>
             </f7-list-item>
 
             <f7-list-item
                 class="account-edit-datetime list-item-with-header-and-title"
                 link="#" no-chevron
-                v-show="account.balance"
+                v-show="account.numericBalance"
                 v-if="!editAccountId"
             >
                 <template #header>
@@ -488,14 +488,14 @@
                                       :currency="subAccount.currency"
                                       :flip-negative="account.isLiability"
                                       v-model:show="subAccountContexts[idx]!.showBalanceSheet"
-                                      v-model="subAccount.balance"
+                                      v-model="subAccount.numericBalance"
                     ></number-pad-sheet>
                 </f7-list-item>
 
                 <f7-list-item
                     class="account-edit-datetime list-item-with-header-and-title"
                     link="#" no-chevron
-                    v-show="subAccount.balance"
+                    v-show="subAccount.numericBalance"
                     v-if="!editAccountId || isNewAccount(subAccount)"
                 >
                     <template #header>
@@ -597,6 +597,7 @@ import { TRANSACTION_MIN_AMOUNT, TRANSACTION_MAX_AMOUNT } from '@/consts/transac
 import type { Account } from '@/models/account.ts';
 
 import { isDefined, findDisplayNameByType } from '@/lib/common.ts';
+import { parseBigDecimal } from '@/lib/numeral.ts';
 import { generateRandomUUID } from '@/lib/misc.ts';
 import {
     getTimezoneOffsetMinutes,
@@ -682,8 +683,8 @@ const showDeleteActionSheet = ref<boolean>(false);
 const allCurrencies = computed<LocalizedCurrencyInfo[]>(() => getAllCurrencies());
 
 function formatAccountDisplayBalance(selectedAccount: Account): string {
-    const balance = account.value.isLiability ? -selectedAccount.balance : selectedAccount.balance;
-    return formatAmountToLocalizedNumeralsWithCurrency(balance, selectedAccount.currency);
+    const balance = parseBigDecimal(selectedAccount.balance);
+    return formatAmountToLocalizedNumeralsWithCurrency(account.value.isLiability ? balance.negate() : balance, selectedAccount.currency);
 }
 
 function formatDate(unixTime?: number): string {

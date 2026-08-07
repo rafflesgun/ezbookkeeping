@@ -165,11 +165,16 @@
                 <span>{{ getTransactionDisplayAmount(item) }}</span>
                 <v-icon class="icon-with-direction mx-1" size="13" :icon="mdiArrowRight" v-if="item.type === TransactionType.Transfer && item.sourceAccountId !== item.destinationAccountId"></v-icon>
                 <span v-if="item.type === TransactionType.Transfer && item.sourceAccountId !== item.destinationAccountId">{{ getTransactionDisplayDestinationAmount(item) }}</span>
+                <v-tooltip activator="parent" v-if="(item.type !== TransactionType.Transfer && getTransactionSourceAccountCurrency(item) !== defaultCurrency) || (item.type === TransactionType.Transfer && getTransactionSourceAccountCurrency(item) !== defaultCurrency && getTransactionDestinationAccountCurrency(item) !== defaultCurrency)">
+                    <span>{{ getTransactionDisplaySourceAmountInDefaultCurrency(item) }}</span>
+                    <v-icon class="ms-1" size="13" :icon="mdiArrowRight" v-if="item.type === TransactionType.Transfer && item.sourceAccountId !== item.destinationAccountId && getTransactionSourceAccountCurrency(item) !== getTransactionDestinationAccountCurrency(item) && item.sourceAmount !== item.destinationAmount"></v-icon>
+                    <span v-if="item.type === TransactionType.Transfer && item.sourceAccountId !== item.destinationAccountId && getTransactionSourceAccountCurrency(item) !== getTransactionDestinationAccountCurrency(item) && item.sourceAmount !== item.destinationAmount">{{ getTransactionDisplayDestinationAmountInDefaultCurrency(item) }}</span>
+                </v-tooltip>
             </div>
             <div class="d-flex align-center" :style="`width: ${item.type === TransactionType.Transfer && item.sourceAccountId !== item.destinationAccountId ? 250 : 100}px`" v-if="editingTransaction === item">
                 <amount-input density="compact" variant="plain"
                               persistent-placeholder
-                              :currency="item.originalSourceAccountCurrency || defaultCurrency"
+                              :currency="getTransactionSourceAccountCurrency(item)"
                               :show-currency="true"
                               :disabled="!!disabled"
                               :placeholder="tt('Amount')"
@@ -177,7 +182,7 @@
                 <v-icon class="icon-with-direction mx-1" size="13" :icon="mdiArrowRight" v-if="item.type === TransactionType.Transfer && item.sourceAccountId !== item.destinationAccountId"></v-icon>
                 <amount-input density="compact" variant="plain"
                               persistent-placeholder
-                              :currency="item.originalDestinationAccountCurrency || defaultCurrency"
+                              :currency="getTransactionDestinationAccountCurrency(item)"
                               :show-currency="true"
                               :disabled="!!disabled"
                               :placeholder="tt('Transfer In Amount')"
@@ -297,23 +302,35 @@
             </div>
         </template>
         <template #item.comment="{ item }">
-            <span v-if="editingTransaction !== item">{{ item.comment || '' }}</span>
+            <template v-if="editingTransaction !== item">
+                <span v-if="!item.comment || item.comment.length <= TRANSACTION_MAX_COMMENT_LENGTH">{{ item.comment || '' }}</span>
+                <div class="text-error font-italic" v-else-if="item.comment && item.comment.length > TRANSACTION_MAX_COMMENT_LENGTH">
+                    <v-tooltip activator="parent">{{ getTransactionDescriptionTooltip(item) }}</v-tooltip>
+                    <v-icon class="me-1" :icon="mdiAlertOutline"/>
+                    <span>{{ item.comment }}</span>
+                </div>
+            </template>
             <div v-if="editingTransaction === item">
-                <v-text-field style="width: 200px" type="text"
+                <v-text-field style="width: calc(max(300px, 100%))" type="text"
                               density="compact" variant="plain"
                               persistent-placeholder
                               :placeholder="tt('Description')"
                               :disabled="!!disabled"
-                              v-model="item.comment" />
+                              v-model="item.comment">
+                    <v-tooltip activator="parent" v-if="item.comment && item.comment.length > TRANSACTION_MAX_COMMENT_LENGTH">
+                        {{ getTransactionDescriptionTooltip(item) }}
+                    </v-tooltip>
+                </v-text-field>
             </div>
         </template>
         <template #bottom>
-            <div class="title-and-toolbar d-flex align-center text-no-wrap mt-2" v-if="importTransactions">
+            <v-divider />
+            <div class="title-and-toolbar d-flex align-center text-no-wrap my-1 mx-3" v-if="importTransactions">
                 <span :class="{ 'text-error': selectedInvalidTransactionCount > 0 }">
                     {{ tt('format.misc.selectedCount', { count: formatNumberToLocalizedNumerals(selectedImportTransactionCount), totalCount: formatNumberToLocalizedNumerals(importTransactions.length) }) }}
                 </span>
                 <v-spacer v-if="importTransactions.length > 10"/>
-                <span v-if="importTransactions.length > 10">{{ tt('Transactions Per Page') }}</span>
+                <span class="ms-2" v-if="importTransactions.length > 10">{{ tt('Transactions Per Page') }}</span>
                 <v-select class="ms-2" density="compact" max-width="100"
                           item-title="name"
                           item-value="value"
@@ -332,57 +349,52 @@
     </v-data-table>
 
     <v-dialog width="640" v-model="showCustomAmountFilterDialog">
-        <v-card class="pa-sm-1 pa-md-2">
-            <template #title>
-                <div class="d-flex align-center">
-                    <h4 class="text-h4">{{ tt('Filter Amount') }}</h4>
+        <one-column-dialog-layout :title="tt('Filter Amount')" :cancel-button-title="tt('Cancel')"
+                                  @cancel="showCustomAmountFilterDialog = false">
+            <template #toolbar>
+                <v-btn class="mx-2" density="comfortable" variant="outlined"
+                       @click="showCustomAmountFilterDialog = false; filters.amount = currentAmountFilterType?.toTextualFilter(currentAmountFilterValue1, currentAmountFilterValue2) ?? null">{{ tt('OK') }}</v-btn>
+            </template>
+
+            <template #content>
+                <div class="w-100 mt-5 d-flex justify-center">
+                    <div class="me-2 d-flex flex-column justify-center" v-if="currentAmountFilterType">
+                        {{ tt(currentAmountFilterType.name) }}
+                    </div>
+                    <amount-input :currency="defaultCurrency"
+                                  v-model="currentAmountFilterValue1"/>
+                    <div class="ms-2 me-2 d-flex flex-column justify-center" v-if="currentAmountFilterType && currentAmountFilterType.paramCount === 2">
+                        ~
+                    </div>
+                    <amount-input :currency="defaultCurrency"
+                                  v-model="currentAmountFilterValue2"
+                                  v-if="currentAmountFilterType && currentAmountFilterType.paramCount === 2"/>
                 </div>
             </template>
-            <v-card-text class="w-100 d-flex justify-center">
-                <div class="me-2 d-flex flex-column justify-center" v-if="currentAmountFilterType">
-                    {{ tt(currentAmountFilterType.name) }}
-                </div>
-                <amount-input :currency="defaultCurrency"
-                              v-model="currentAmountFilterValue1"/>
-                <div class="ms-2 me-2 d-flex flex-column justify-center" v-if="currentAmountFilterType && currentAmountFilterType.paramCount === 2">
-                    ~
-                </div>
-                <amount-input :currency="defaultCurrency"
-                              v-model="currentAmountFilterValue2"
-                              v-if="currentAmountFilterType && currentAmountFilterType.paramCount === 2"/>
-            </v-card-text>
-            <v-card-text>
-                <div class="w-100 d-flex justify-center flex-wrap mt-sm-1 mt-md-2 gap-4">
-                    <v-btn @click="showCustomAmountFilterDialog = false; filters.amount = currentAmountFilterType?.toTextualFilter(currentAmountFilterValue1, currentAmountFilterValue2) ?? null">{{ tt('OK') }}</v-btn>
-                    <v-btn color="secondary" variant="tonal" @click="showCustomAmountFilterDialog = false">{{ tt('Cancel') }}</v-btn>
-                </div>
-            </v-card-text>
-        </v-card>
+        </one-column-dialog-layout>
     </v-dialog>
 
     <v-dialog width="640" v-model="showCustomDescriptionDialog">
-        <v-card class="pa-sm-1 pa-md-2">
-            <template #title>
-                <div class="d-flex align-center">
-                    <h4 class="text-h4">{{ tt('Filter Description') }}</h4>
+        <one-column-dialog-layout :title="tt('Filter Description')" :cancel-button-title="tt('Cancel')"
+                                  @cancel="showCustomDescriptionDialog = false; currentDescriptionFilterValue = ''">
+            <template #toolbar>
+                <v-btn class="mx-2" density="comfortable" variant="outlined"
+                       :disabled="!currentDescriptionFilterValue"
+                       @click="showCustomDescriptionDialog = false; filters.description = currentDescriptionFilterValue">{{ tt('OK') }}</v-btn>
+            </template>
+
+            <template #content>
+                <div class="mt-5">
+                    <v-text-field
+                        type="text"
+                        persistent-placeholder
+                        :label="tt('Description')"
+                        :placeholder="tt('Description')"
+                        v-model="currentDescriptionFilterValue"
+                    />
                 </div>
             </template>
-            <v-card-text class="w-100 d-flex justify-center">
-                <v-text-field
-                    type="text"
-                    persistent-placeholder
-                    :label="tt('Description')"
-                    :placeholder="tt('Description')"
-                    v-model="currentDescriptionFilterValue"
-                />
-            </v-card-text>
-            <v-card-text>
-                <div class="w-100 d-flex justify-center flex-wrap mt-sm-1 mt-md-2 gap-4">
-                    <v-btn :disabled="!currentDescriptionFilterValue" @click="showCustomDescriptionDialog = false; filters.description = currentDescriptionFilterValue">{{ tt('OK') }}</v-btn>
-                    <v-btn color="secondary" variant="tonal" @click="showCustomDescriptionDialog = false; currentDescriptionFilterValue = ''">{{ tt('Cancel') }}</v-btn>
-                </div>
-            </v-card-text>
-        </v-card>
+        </one-column-dialog-layout>
     </v-dialog>
 
     <date-range-selection-dialog :title="tt('Custom Date Range')"
@@ -414,6 +426,7 @@ import { useUserStore } from '@/stores/user.ts';
 import { useAccountsStore } from '@/stores/account.ts';
 import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useTransactionTagsStore } from '@/stores/transactionTag.ts';
+import { useExchangeRatesStore } from '@/stores/exchangeRates.ts';
 
 import { type NameValue, type NameNumeralValue, itemAndIndex, reversed, keys } from '@/core/base.ts';
 import { AmountFilterType } from '@/core/numeral.ts';
@@ -421,6 +434,8 @@ import { CategoryType } from '@/core/category.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import { KnownFileType } from '@/core/file.ts';
 import { ImportTransactionColumnType } from '@/core/import_transaction.ts';
+
+import { TRANSACTION_MAX_COMMENT_LENGTH } from '@/consts/transaction.ts';
 
 import { Account, type CategorizedAccountWithDisplayBalance } from '@/models/account.ts';
 import type { TransactionCategory } from '@/models/transaction_category.ts';
@@ -433,6 +448,7 @@ import {
     replaceAll,
     objectFieldToArrayItem
 } from '@/lib/common.ts';
+import { parseBigDecimal } from '@/lib/numeral.ts';
 import {
     getUtcOffsetByUtcOffsetMinutes,
     getTimezoneOffsetMinutes,
@@ -524,6 +540,7 @@ const userStore = useUserStore();
 const accountsStore = useAccountsStore();
 const transactionCategoriesStore = useTransactionCategoriesStore();
 const transactionTagsStore = useTransactionTagsStore();
+const exchangeRatesStore = useExchangeRatesStore();
 
 const snackbar = useTemplateRef<SnackBarType>('snackbar');
 const batchReplaceDialog = useTemplateRef<BatchReplaceDialogType>('batchReplaceDialog');
@@ -1363,18 +1380,29 @@ function getDisplayTransactionType(transaction: ImportTransaction): string {
     }
 }
 
-function getDisplayCurrency(value: number, currencyCode: string): string {
-    return formatAmountToLocalizedNumeralsWithCurrency(value, currencyCode);
-}
-
-function getTransactionDisplayAmount(transaction: ImportTransaction): string {
+function getTransactionSourceAccountCurrency(transaction: ImportTransaction): string {
     let currency = transaction.originalSourceAccountCurrency || defaultCurrency.value;
 
     if (transaction.sourceAccountId && transaction.sourceAccountId !== '0' && allAccountsMap.value[transaction.sourceAccountId]) {
         currency = allAccountsMap.value[transaction.sourceAccountId]!.currency;
     }
 
-    return getDisplayCurrency(transaction.sourceAmount, currency);
+    return currency;
+}
+
+function getTransactionDestinationAccountCurrency(transaction: ImportTransaction): string {
+    let currency = transaction.originalDestinationAccountCurrency || defaultCurrency.value;
+
+    if (transaction.destinationAccountId && transaction.destinationAccountId !== '0' && allAccountsMap.value[transaction.destinationAccountId]) {
+        currency = allAccountsMap.value[transaction.destinationAccountId]!.currency;
+    }
+
+    return currency;
+}
+
+function getTransactionDisplayAmount(transaction: ImportTransaction): string {
+    const currency = getTransactionSourceAccountCurrency(transaction);
+    return formatAmountToLocalizedNumeralsWithCurrency(parseBigDecimal(transaction.sourceAmount), currency);
 }
 
 function getTransactionDisplayDestinationAmount(transaction: ImportTransaction): string {
@@ -1382,13 +1410,30 @@ function getTransactionDisplayDestinationAmount(transaction: ImportTransaction):
         return '-';
     }
 
-    let currency = transaction.originalDestinationAccountCurrency || defaultCurrency.value;
+    const currency = getTransactionDestinationAccountCurrency(transaction);
+    return formatAmountToLocalizedNumeralsWithCurrency(parseBigDecimal(transaction.destinationAmount), currency);
+}
 
-    if (transaction.destinationAccountId && transaction.destinationAccountId !== '0' && allAccountsMap.value[transaction.destinationAccountId]) {
-        currency = allAccountsMap.value[transaction.destinationAccountId]!.currency;
+function getTransactionDisplaySourceAmountInDefaultCurrency(transaction: ImportTransaction): string {
+    const currency = getTransactionSourceAccountCurrency(transaction);
+
+    if (!currency || currency === defaultCurrency.value) {
+        return getTransactionDisplayAmount(transaction);
     }
 
-    return getDisplayCurrency(transaction.destinationAmount, currency);
+    const amount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.sourceAmount), currency, defaultCurrency.value);
+    return amount ? formatAmountToLocalizedNumeralsWithCurrency(amount.truncate(), defaultCurrency.value) : getTransactionDisplayAmount(transaction);
+}
+
+function getTransactionDisplayDestinationAmountInDefaultCurrency(transaction: ImportTransaction): string {
+    const currency = getTransactionDestinationAccountCurrency(transaction);
+
+    if (!currency || currency === defaultCurrency.value) {
+        return getTransactionDisplayDestinationAmount(transaction);
+    }
+
+    const amount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.destinationAmount), currency, defaultCurrency.value);
+    return amount ? formatAmountToLocalizedNumeralsWithCurrency(amount.truncate(), defaultCurrency.value) : getTransactionDisplayDestinationAmount(transaction);
 }
 
 function getSourceAccountTitle(transaction: ImportTransaction): string {
@@ -1508,6 +1553,16 @@ function getCurrentInvalidTagNames(): NameValue[] {
     }
 
     return invalidTags;
+}
+
+function getTransactionDescriptionTooltip(transaction: ImportTransaction): string {
+    if (transaction.comment && transaction.comment.length > TRANSACTION_MAX_COMMENT_LENGTH) {
+        return tt('format.misc.charactersOverLimit', {
+            count: formatNumberToLocalizedNumerals(transaction.comment.length - TRANSACTION_MAX_COMMENT_LENGTH)
+        });
+    } else {
+        return '';
+    }
 }
 
 function getAllOriginalTagNames(): NameValue[] {
@@ -2191,7 +2246,7 @@ function exportData(fileType: KnownFileType): void {
         const type = getDisplayTransactionType(transaction);
         const accountName = transaction.sourceAccountId && transaction.sourceAccountId !== '0' && allAccountsMap.value[transaction.sourceAccountId] ? (allAccountsMap.value[transaction.sourceAccountId]?.name ?? transaction.originalSourceAccountName) : transaction.originalSourceAccountName;
         const amountCurrency = transaction.sourceAccountId && transaction.sourceAccountId !== '0' && allAccountsMap.value[transaction.sourceAccountId] ? (allAccountsMap.value[transaction.sourceAccountId]?.currency ?? transaction.originalSourceAccountCurrency) : transaction.originalSourceAccountCurrency;
-        const amount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(transaction.sourceAmount, amountCurrency);
+        const amount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(parseBigDecimal(transaction.sourceAmount), amountCurrency);
         const geographicLocation = transaction.geoLocation ? `${transaction.geoLocation.longitude} ${transaction.geoLocation.latitude}` : '';
         let categoryName = transaction.categoryId && transaction.categoryId !== '0' && allCategoriesMap.value[transaction.categoryId] ? (allCategoriesMap.value[transaction.categoryId]?.name ?? transaction.originalCategoryName) : transaction.originalCategoryName;
         let relatedAccountName: string | undefined = undefined;
@@ -2203,7 +2258,7 @@ function exportData(fileType: KnownFileType): void {
         } else if (transaction.type === TransactionType.Transfer) {
             relatedAccountName = transaction.destinationAccountId && transaction.destinationAccountId !== '0' && allAccountsMap.value[transaction.destinationAccountId] ? (allAccountsMap.value[transaction.destinationAccountId]?.name ?? transaction.originalDestinationAccountName) : transaction.originalDestinationAccountName;
             relatedAccountCurrency = transaction.destinationAccountId && transaction.destinationAccountId !== '0' && allAccountsMap.value[transaction.destinationAccountId] ? (allAccountsMap.value[transaction.destinationAccountId]?.currency ?? transaction.originalDestinationAccountCurrency) : transaction.originalDestinationAccountCurrency;
-            relatedAmount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(transaction.destinationAmount, relatedAccountCurrency);
+            relatedAmount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(parseBigDecimal(transaction.destinationAmount), relatedAccountCurrency);
         }
 
         const tagNames: string[] = [];
@@ -2293,10 +2348,23 @@ defineExpose({
     }
 }
 
-.import-transaction-table .v-autocomplete.v-input.v-input--density-compact:not(.v-textarea) .v-field__input,
-.import-transaction-table .v-select.v-input.v-input--density-compact:not(.v-textarea) .v-field__input {
-    min-height: inherit;
-    padding-top: 4px;
+.import-transaction-table .v-text-field.v-input.v-input--density-compact:not(.v-textarea),
+.import-transaction-table .v-autocomplete.v-input.v-input--density-compact:not(.v-textarea),
+.import-transaction-table .v-select.v-input.v-input--density-compact:not(.v-textarea) {
+    .v-field__input {
+        min-height: inherit;
+        padding-top: 4px;
+    }
+}
+
+.import-transaction-table .amount-input.v-input.v-input--density-compact {
+    .v-field__prepend-inner {
+        padding-top: 3px;
+    }
+
+    .v-field__input {
+        padding-inline-start: 0.2rem;
+    }
 }
 
 .import-transaction-table .v-chip.transaction-tag {

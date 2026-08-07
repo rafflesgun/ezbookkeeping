@@ -1,11 +1,21 @@
 <template>
     <v-dialog width="800" :persistent="loading || recognizing || !!imageFile" v-model="showState" @paste="onPaste">
-        <v-card class="pa-sm-1 pa-md-2">
-            <template #title>
-                <h4 class="text-h4">{{ tt('AI Image Recognition') }}</h4>
+        <one-column-dialog-layout content-class="pa-0" content-style="height: 500px"
+                                  :disabled="loading || recognizing" :loading="loading || recognizing"
+                                  :title="tt('AI Image Recognition')"
+                                  :cancel-button-title="tt('Cancel')"
+                                  @cancel="cancel">
+            <template #toolbar>
+                <v-btn class="mx-2" density="comfortable" variant="outlined"
+                       :disabled="loading || recognizing || !imageFile" @click="recognize"
+                       v-if="!recognizing">{{ tt('Recognize') }}
+                </v-btn>
+                <v-btn class="mx-2" density="comfortable" variant="outlined"
+                       :disabled="loading"
+                       @click="cancelRecognize" v-if="recognizing && cancelRecognizingUuid">{{ tt('Cancel Recognition') }}</v-btn>
             </template>
 
-            <v-card-text class="d-flex flex-column flex-md-row flex-grow-1 overflow-y-auto" style="height: 480px">
+            <template #content>
                 <div class="w-100 h-100 border position-relative"
                      @dragenter.prevent="onDragEnter"
                      @dragover.prevent
@@ -28,21 +38,9 @@
                         </template>
                     </v-img>
                 </div>
-            </v-card-text>
+            </template>
 
-            <v-card-text>
-                <div class="w-100 d-flex justify-center flex-wrap mt-sm-1 mt-md-2 gap-4">
-                    <v-btn :disabled="loading || recognizing || !imageFile" @click="recognize">
-                        {{ tt('Recognize') }}
-                        <v-progress-circular indeterminate size="22" class="ms-2" v-if="recognizing"></v-progress-circular>
-                    </v-btn>
-                    <v-btn color="secondary" variant="tonal" :disabled="loading"
-                           @click="cancelRecognize" v-if="recognizing && cancelRecognizingUuid">{{ tt('Cancel Recognition') }}</v-btn>
-                    <v-btn color="secondary" variant="tonal" :disabled="loading || recognizing"
-                           @click="cancel" v-if="!recognizing || !cancelRecognizingUuid">{{ tt('Cancel') }}</v-btn>
-                </div>
-            </v-card-text>
-        </v-card>
+        </one-column-dialog-layout>
     </v-dialog>
 
     <snack-bar ref="snackbar" />
@@ -59,14 +57,20 @@ import { useI18n } from '@/locales/helpers.ts';
 
 import { useTransactionsStore } from '@/stores/transaction.ts';
 
+import { ImageUploadQualityType } from '@/core/image.ts';
 import { KnownFileType } from '@/core/file.ts';
 import { ThemeType } from '@/core/theme.ts';
 import { SUPPORTED_IMAGE_EXTENSIONS } from '@/consts/file.ts';
 
-import type { RecognizedReceiptImageResponse } from '@/models/large_language_model.ts';
+import type { RecognizedTransactionResponse } from '@/models/large_language_model.ts';
+
+export interface AIImageRecognitionResult {
+    response: RecognizedTransactionResponse;
+    imageFile: File;
+}
 
 import { generateRandomUUID } from '@/lib/misc.ts';
-import { compressJpgImage } from '@/lib/ui/common.ts';
+import { compressJpgImageByQuality } from '@/lib/ui/common.ts';
 import logger from '@/lib/logger.ts';
 
 type SnackBarType = InstanceType<typeof SnackBar>;
@@ -80,7 +84,7 @@ const transactionsStore = useTransactionsStore();
 const snackbar = useTemplateRef<SnackBarType>('snackbar');
 const imageInput = useTemplateRef<HTMLInputElement>('imageInput');
 
-let resolveFunc: ((response: RecognizedReceiptImageResponse) => void) | null = null;
+let resolveFunc: ((result: AIImageRecognitionResult) => void) | null = null;
 let rejectFunc: ((reason?: unknown) => void) | null = null;
 
 const showState = ref<boolean>(false);
@@ -98,7 +102,7 @@ function loadImage(file: File): void {
     imageFile.value = null;
     imageSrc.value = undefined;
 
-    compressJpgImage(file, 1280, 1280, 0.8).then(blob => {
+    compressJpgImageByQuality(file, ImageUploadQualityType.HD720P).then(blob => {
         imageFile.value = KnownFileType.JPG.createFileFromBlob(blob, "image");
         imageSrc.value = URL.createObjectURL(blob);
         loading.value = false;
@@ -111,7 +115,7 @@ function loadImage(file: File): void {
     });
 }
 
-function open(): Promise<RecognizedReceiptImageResponse> {
+function open(): Promise<AIImageRecognitionResult> {
     showState.value = true;
     loading.value = false;
     recognizing.value = false;
@@ -156,6 +160,7 @@ function recognize(): void {
         return;
     }
 
+    const currentImageFile = imageFile.value;
     cancelRecognizingUuid.value = generateRandomUUID();
     recognizing.value = true;
 
@@ -163,7 +168,7 @@ function recognize(): void {
         imageFile: imageFile.value,
         cancelableUuid: cancelRecognizingUuid.value
     }).then(response => {
-        resolveFunc?.(response);
+        resolveFunc?.({ response: response, imageFile: currentImageFile });
         showState.value = false;
         recognizing.value = false;
         cancelRecognizingUuid.value = undefined;

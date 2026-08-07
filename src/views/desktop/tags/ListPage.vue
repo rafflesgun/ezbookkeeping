@@ -141,7 +141,7 @@
                                                         v-model="tags"
                                                         @change="onMove">
                                             <template #item="{ element }">
-                                                <tr class="transaction-tags-table-row-tag text-sm" v-if="showHidden || !element.hidden"
+                                                <tr class="transaction-tags-table-row-tag" v-if="showHidden || !element.hidden"
                                                     @mouseenter="hoveredTagId = element.id" @mouseleave="hoveredTagId = ''">
                                                     <td>
                                                         <div class="d-flex align-center">
@@ -259,7 +259,7 @@
                                         </draggable-list>
 
                                         <tbody ref="newTagRow" v-if="newTag">
-                                        <tr class="text-sm" :class="{ 'even-row': (availableTagCount & 1) === 1}">
+                                        <tr :class="{ 'even-row': (availableTagCount & 1) === 1}">
                                             <td>
                                                 <div class="d-flex align-center">
                                                     <v-text-field class="w-100 me-2" type="text" color="primary"
@@ -308,29 +308,21 @@
     </v-row>
 
     <v-dialog width="640" v-model="showTagMoveToDialog">
-        <v-card class="pa-sm-1 pa-md-2">
-            <template #title>
-                <div class="d-flex align-center">
-                    <h4 class="text-h4">{{ tt('Move to...') }}</h4>
-                </div>
-            </template>
-            <v-card-text class="d-flex flex-column flex-md-row flex-grow-1 overflow-y-auto">
+        <one-column-dialog-layout content-class="pa-0" :disabled="loading || updating"
+                                  :title="tt('Move to...')" :cancel-button-title="tt('Close')"
+                                  @cancel="showTagMoveToDialog = false">
+            <template #content>
                 <v-table hover density="comfortable" class="w-100 table-striped">
                     <tbody>
-                    <tr class="text-sm cursor-pointer" :key="tagGroup.id" v-for="tagGroup in allTagGroupsWithDefault" v-show="activeTagGroupId !== tagGroup.id">
+                    <tr class="cursor-pointer" :key="tagGroup.id" v-for="tagGroup in allTagGroupsWithDefault" v-show="activeTagGroupId !== tagGroup.id">
                         <td @click="moveTagToGroup(currentMovingTag, tagGroup.id)">
                             <span>{{ tagGroup.name }}</span>
                         </td>
                     </tr>
                     </tbody>
                 </v-table>
-            </v-card-text>
-            <v-card-text class="overflow-y-visible">
-                <div class="w-100 d-flex justify-center flex-wrap mt-sm-1 mt-md-2 gap-4">
-                    <v-btn color="secondary" variant="tonal" :disabled="loading || updating" @click="showTagMoveToDialog = false">{{ tt('Close') }}</v-btn>
-                </div>
-            </v-card-text>
-        </v-card>
+            </template>
+        </one-column-dialog-layout>
     </v-dialog>
 
     <tag-group-change-display-order-dialog ref="tagGroupChangeDisplayOrderDialog" />
@@ -783,13 +775,8 @@ watch(() => display.mdAndUp.value, (newValue) => {
 }
 
 .transaction-tags-table .v-text-field .v-field__input {
-    font-size: 0.875rem;
     padding-top: 0;
     color: rgba(var(--v-theme-on-surface));
-}
-
-.transaction-tags-table .transaction-tag-name {
-    font-size: 0.875rem;
 }
 
 .transaction-tags-table tr .v-text-field .v-field__input {

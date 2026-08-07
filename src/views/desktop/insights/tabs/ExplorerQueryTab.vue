@@ -431,7 +431,7 @@
 
                                                 <v-text-field disabled density="compact"
                                                               :placeholder="tt('None')"
-                                                              v-else-if="conditionWithRelation.condition.field === TransactionExplorerConditionField.Description.value &&
+                                                              v-else-if="(conditionWithRelation.condition.field === TransactionExplorerConditionField.Description.value || conditionWithRelation.condition.field === TransactionExplorerConditionField.DescriptionCaseInsensitive.value || conditionWithRelation.condition.field === TransactionExplorerConditionField.DescriptionNormalized.value) &&
                                                                          conditionWithRelation.condition.operator === TransactionExplorerConditionOperator.IsEmpty.value || conditionWithRelation.condition.operator === TransactionExplorerConditionOperator.IsNotEmpty.value"
                                                 />
 
@@ -439,7 +439,7 @@
                                                               :disabled="loading || disabled || !!editingQuery"
                                                               :placeholder="tt('None')"
                                                               v-model="conditionWithRelation.condition.value"
-                                                              v-else-if="conditionWithRelation.condition.field === TransactionExplorerConditionField.Description.value &&
+                                                              v-else-if="(conditionWithRelation.condition.field === TransactionExplorerConditionField.Description.value || conditionWithRelation.condition.field === TransactionExplorerConditionField.DescriptionCaseInsensitive.value || conditionWithRelation.condition.field === TransactionExplorerConditionField.DescriptionNormalized.value) &&
                                                                          conditionWithRelation.condition.operator !== TransactionExplorerConditionOperator.IsEmpty.value && conditionWithRelation.condition.operator !== TransactionExplorerConditionOperator.IsNotEmpty.value"
                                                 />
                                             </div>
@@ -486,30 +486,27 @@
         </draggable-list>
     </v-card-text>
 
-    <v-dialog width="800" v-model="showFilterSourceAccountsDialog">
-        <account-filter-settings-card type="custom" :dialog-mode="true"
-                                      :selected-account-ids="isArray(currentCondition?.value) ? currentCondition?.value as string[] : []"
-                                      @settings:change="updateSourceAccount" />
-    </v-dialog>
+    <account-filter-settings-dialog type="custom"
+                                    :selected-account-ids="isArray(currentCondition?.value) ? currentCondition?.value as string[] : []"
+                                    v-model:show="showFilterSourceAccountsDialog"
+                                    @settings:change="updateSourceAccount" />
 
-    <v-dialog width="800" v-model="showFilterDestinationAccountsDialog">
-        <account-filter-settings-card type="custom" :dialog-mode="true"
-                                      :selected-account-ids="isArray(currentCondition?.value) ? currentCondition?.value as string[] : []"
-                                      @settings:change="updateDestinationAccount" />
-    </v-dialog>
+    <account-filter-settings-dialog type="custom"
+                                    :selected-account-ids="isArray(currentCondition?.value) ? currentCondition?.value as string[] : []"
+                                    v-model:show="showFilterDestinationAccountsDialog"
+                                    @settings:change="updateDestinationAccount" />
 
-    <v-dialog width="800" v-model="showFilterTransactionCategoriesDialog">
-        <category-filter-settings-card type="custom" :dialog-mode="true"
-                                       :selected-category-ids="isArray(currentCondition?.value) ? currentCondition?.value as string[] : []"
-                                       @settings:change="updateTransactionCategories" />
-    </v-dialog>
+    <category-filter-settings-dialog type="custom"
+                                     :selected-category-ids="isArray(currentCondition?.value) ? currentCondition?.value as string[] : []"
+                                     v-model:show="showFilterTransactionCategoriesDialog"
+                                     @settings:change="updateTransactionCategories" />
 
     <snack-bar ref="snackbar" />
 </template>
 
 <script setup lang="ts">
-import AccountFilterSettingsCard from '@/views/desktop/common/cards/AccountFilterSettingsCard.vue';
-import CategoryFilterSettingsCard from '@/views/desktop/common/cards/CategoryFilterSettingsCard.vue';
+import AccountFilterSettingsDialog from '@/views/desktop/common/dialogs/AccountFilterSettingsDialog.vue';
+import CategoryFilterSettingsDialog from '@/views/desktop/common/dialogs/CategoryFilterSettingsDialog.vue';
 
 import SnackBar from '@/components/desktop/SnackBar.vue';
 
@@ -600,9 +597,9 @@ const editingQuery = ref<TransactionExplorerQuery | undefined>(undefined);
 const editingQueryName = ref<string>('');
 
 const queries = computed<TransactionExplorerQuery[]>({
-    get: () => explorersStore.currentInsightsExplorer.queries,
+    get: () => explorersStore.currentExploration.queries,
     set: (value: TransactionExplorerQuery[]) => {
-        explorersStore.currentInsightsExplorer.queries = value;
+        explorersStore.currentExploration.queries = value;
     }
 });
 
@@ -725,8 +722,8 @@ function removeQuery(query: TransactionExplorerQuery, queryIndex: number): void 
         queries.value.splice(queryIndex, 1);
     }
 
-    if (explorersStore.currentInsightsExplorer.datatableQuerySource === query.id) {
-        explorersStore.currentInsightsExplorer.datatableQuerySource = '';
+    if (explorersStore.currentExploration.datatableQuerySource === query.id) {
+        explorersStore.currentExploration.datatableQuerySource = '';
     }
 
     if (queries.value.length < 1) {
@@ -884,7 +881,7 @@ function getExpression(query: TransactionExplorerQuery, queryIndex: number): str
     try {
         return query.toExpression(transactionCategoriesStore.allTransactionCategoriesMap, accountsStore.allAccountsMap, transactionTagsStore.allTransactionTagsMap);
     } catch (ex) {
-        logger.error('failed to generate expression for explorer query#' + queryIndex, ex);
+        logger.error('failed to generate expression for exploration query#' + queryIndex, ex);
         snackbar.value?.showError(tt('Failed to generate expression'));
         return tt('Failed to generate expression');
     }

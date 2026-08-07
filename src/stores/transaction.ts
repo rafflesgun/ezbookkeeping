@@ -11,7 +11,9 @@ import { useExplorersStore } from '@/stores/explorer.ts';
 import { useExchangeRatesStore } from './exchangeRates.ts';
 
 import { type BeforeResolveFunction, itemAndIndex, entries, keys } from '@/core/base.ts';
+import { type BigDecimal } from '@/core/numeral.ts';
 import { type TextualYearMonth, DateRange } from '@/core/datetime.ts';
+import { KeywordMatchMode } from '@/core/text.ts';
 import { CategoryType } from '@/core/category.ts';
 import type { ImportFileTypeSupportedAdditionalOptions } from '@/core/file.ts';
 import { TransactionType, TransactionTagFilterType } from '@/core/transaction.ts';
@@ -37,7 +39,7 @@ import {
     type ExportTransactionDataRequest
 } from '@/models/data_management.ts';
 import type {
-    RecognizedReceiptImageResponse
+    RecognizedTransactionResponse
 } from '@/models/large_language_model.ts';
 
 import {
@@ -55,7 +57,7 @@ import {
     countSplitItems
 } from '@/lib/common.ts';
 import { parseDateTimeFromUnixTimeWithTimezoneOffset } from '@/lib/datetime.ts';
-import { getAmountWithDecimalNumberCount } from '@/lib/numeral.ts';
+import { BIG_DECIMAL_ZERO, parseBigDecimal, getAmountWithDecimalNumberCount } from '@/lib/numeral.ts';
 import { getCurrencyFraction } from '@/lib/currency.ts';
 import { getFirstVisibleCategoryId } from '@/lib/category.ts';
 import services, { type ApiResponsePromise } from '@/lib/services.ts';
@@ -71,6 +73,7 @@ export interface TransactionListPartialFilter {
     tagFilter?: string;
     amountFilter?: string;
     keyword?: string;
+    matchMode?: number;
 }
 
 export interface TransactionListFilter extends TransactionListPartialFilter {
@@ -83,12 +86,13 @@ export interface TransactionListFilter extends TransactionListPartialFilter {
     tagFilter: string;
     amountFilter: string;
     keyword: string;
+    matchMode: number;
 }
 
 export interface TransactionTotalAmount {
-    expense: number;
+    expense: BigDecimal;
     incompleteExpense: boolean;
-    income: number;
+    income: BigDecimal;
     incompleteIncome: boolean;
 }
 
@@ -123,7 +127,8 @@ export const useTransactionsStore = defineStore('transactions', () => {
         accountIds: '',
         tagFilter: '',
         amountFilter: '',
-        keyword: ''
+        keyword: '',
+        matchMode: KeywordMatchMode.Default.type
     });
 
     const transactions = ref<TransactionMonthList[]>([]);
@@ -231,9 +236,9 @@ export const useTransactionsStore = defineStore('transactions', () => {
                         opened: autoExpand,
                         items: [],
                         totalAmount: {
-                            expense: 0,
+                            expense: BIG_DECIMAL_ZERO,
                             incompleteExpense: true,
-                            income: 0,
+                            income: BIG_DECIMAL_ZERO,
                             incompleteIncome: true
                         },
                         dailyTotalAmounts: {}
@@ -330,8 +335,8 @@ export const useTransactionsStore = defineStore('transactions', () => {
             return;
         }
 
-        let totalExpense = 0;
-        let totalIncome = 0;
+        let totalExpense: BigDecimal = BIG_DECIMAL_ZERO;
+        let totalIncome: BigDecimal = BIG_DECIMAL_ZERO;
         let hasUnCalculatedTotalExpense = false;
         let hasUnCalculatedTotalIncome = false;
         const dailyTotalAmounts: Record<string, TransactionTotalAmount> = {};
@@ -356,21 +361,21 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
             if (!dailyTotalAmount) {
                 dailyTotalAmount = {
-                    expense: 0,
+                    expense: BIG_DECIMAL_ZERO,
                     incompleteExpense: false,
-                    income: 0,
+                    income: BIG_DECIMAL_ZERO,
                     incompleteIncome: false
                 };
                 dailyTotalAmounts[transactionDay] = dailyTotalAmount;
             }
 
-            let amount = transaction.sourceAmount;
+            let amount: BigDecimal = parseBigDecimal(transaction.sourceAmount);
             let account = transaction.sourceAccount;
 
             if (totalAccountIdsCount > 0 && transaction.destinationAccount
                 && (!allAccountIdsMap[transaction.sourceAccount?.id || ''] && !allAccountIdsMap[transaction.sourceAccount?.parentId || ''])
                 && (allAccountIdsMap[transaction.destinationAccount.id] || allAccountIdsMap[transaction.destinationAccount.parentId])) {
-                amount = transaction.destinationAmount;
+                amount = parseBigDecimal(transaction.destinationAmount);
                 account = transaction.destinationAccount;
             }
 
@@ -381,7 +386,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
             if (account.currency !== defaultCurrency) {
                 const balance = exchangeRatesStore.getExchangedAmount(amount, account.currency, defaultCurrency);
 
-                if (!isNumber(balance)) {
+                if (!balance) {
                     if (transaction.type === TransactionType.Expense) {
                         hasUnCalculatedTotalExpense = true;
                         dailyTotalAmount.incompleteExpense = true;
@@ -397,11 +402,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
             }
 
             if (transaction.type === TransactionType.Expense) {
-                totalExpense += amount;
-                dailyTotalAmount.expense += amount;
+                totalExpense = totalExpense.add(amount);
+                dailyTotalAmount.expense = dailyTotalAmount.expense.add(amount);
             } else if (transaction.type === TransactionType.Income) {
-                totalIncome += amount;
-                dailyTotalAmount.income += amount;
+                totalIncome = totalIncome.add(amount);
+                dailyTotalAmount.income = dailyTotalAmount.income.add(amount);
             } else if (transaction.type === TransactionType.Transfer && totalAccountIdsCount > 0) {
                 if (allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccountId]) {
                     // Do Nothing
@@ -412,18 +417,18 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 } else if (transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
                     // Do Nothing
                 } else if (allAccountIdsMap[transaction.sourceAccountId] || (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId])) {
-                    totalExpense += amount;
-                    dailyTotalAmount.expense += amount;
+                    totalExpense = totalExpense.add(amount);
+                    dailyTotalAmount.expense = dailyTotalAmount.expense.add(amount);
                 } else if (allAccountIdsMap[transaction.destinationAccountId] || (transaction.destinationAccount && allAccountIdsMap[transaction.destinationAccount.parentId])) {
-                    totalIncome += amount;
-                    dailyTotalAmount.income += amount;
+                    totalIncome = totalIncome.add(amount);
+                    dailyTotalAmount.income = dailyTotalAmount.income.add(amount);
                 }
             }
         }
 
-        transactionMonthList.totalAmount.expense = Math.trunc(totalExpense);
+        transactionMonthList.totalAmount.expense = totalExpense.truncate();
         transactionMonthList.totalAmount.incompleteExpense = incomplete || hasUnCalculatedTotalExpense;
-        transactionMonthList.totalAmount.income = Math.trunc(totalIncome);
+        transactionMonthList.totalAmount.income = totalIncome.truncate();
         transactionMonthList.totalAmount.incompleteIncome = incomplete || hasUnCalculatedTotalIncome;
 
         for (const day of keys(transactionMonthList.dailyTotalAmounts)) {
@@ -432,9 +437,9 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
         for (const [day, dailyTotalAmount] of entries(dailyTotalAmounts)) {
             transactionMonthList.dailyTotalAmounts[day] = {
-                expense: Math.trunc(dailyTotalAmount.expense),
+                expense: dailyTotalAmount.expense.truncate(),
                 incompleteExpense: incomplete || dailyTotalAmount.incompleteExpense,
-                income: Math.trunc(dailyTotalAmount.income),
+                income: dailyTotalAmount.income.truncate(),
                 incompleteIncome: incomplete || dailyTotalAmount.incompleteIncome
             };
         }
@@ -570,34 +575,34 @@ export const useTransactionsStore = defineStore('transactions', () => {
             const oldSourceAccount = oldSourceAccountId ? accountsStore.allAccountsMap[oldSourceAccountId] : sourceAccount;
             const oldDestinationAccount = oldDestinationAccountId ? accountsStore.allAccountsMap[oldDestinationAccountId] : destinationAccount;
 
-            let oldValueToCompare = oldSourceAmount;
-            let newValueToSet = newSourceAmount;
+            let oldValueToCompare: BigDecimal = parseBigDecimal(oldSourceAmount);
+            let newValueToSet: BigDecimal = parseBigDecimal(newSourceAmount);
 
             if (oldSourceAccount && oldDestinationAccount && oldSourceAccount.currency !== oldDestinationAccount.currency) {
                 const decimalNumberCount = getCurrencyFraction(oldDestinationAccount.currency);
-                const exchangedOldValue = exchangeRatesStore.getExchangedAmount(oldSourceAmount, oldSourceAccount.currency, oldDestinationAccount.currency);
+                const exchangedOldValue = exchangeRatesStore.getExchangedAmount(parseBigDecimal(oldSourceAmount), oldSourceAccount.currency, oldDestinationAccount.currency);
 
-                if (isNumber(decimalNumberCount) && isNumber(exchangedOldValue)) {
-                    oldValueToCompare = Math.trunc(exchangedOldValue);
+                if (isNumber(decimalNumberCount) && exchangedOldValue) {
+                    oldValueToCompare = exchangedOldValue.truncate();
                     oldValueToCompare = getAmountWithDecimalNumberCount(oldValueToCompare, decimalNumberCount);
                 }
             }
 
             if (sourceAccount.currency !== destinationAccount.currency) {
                 const decimalNumberCount = getCurrencyFraction(destinationAccount.currency);
-                const exchangedNewValue = exchangeRatesStore.getExchangedAmount(newSourceAmount, sourceAccount.currency, destinationAccount.currency);
+                const exchangedNewValue = exchangeRatesStore.getExchangedAmount(parseBigDecimal(newSourceAmount), sourceAccount.currency, destinationAccount.currency);
 
-                if (isNumber(decimalNumberCount) && isNumber(exchangedNewValue)) {
-                    newValueToSet = Math.trunc(exchangedNewValue);
+                if (isNumber(decimalNumberCount) && exchangedNewValue) {
+                    newValueToSet = exchangedNewValue.truncate();
                     newValueToSet = getAmountWithDecimalNumberCount(newValueToSet, decimalNumberCount);
                 } else {
                     return;
                 }
             }
 
-            if ((transaction.destinationAmount === oldValueToCompare || transaction.destinationAmount === 0) &&
-                (TRANSACTION_MIN_AMOUNT <= newValueToSet && newValueToSet <= TRANSACTION_MAX_AMOUNT)) {
-                transaction.destinationAmount = newValueToSet;
+            if ((oldValueToCompare.equals(transaction.destinationAmount) || transaction.destinationAmount === 0) &&
+                newValueToSet.between(TRANSACTION_MIN_AMOUNT, TRANSACTION_MAX_AMOUNT)) {
+                transaction.destinationAmount = newValueToSet.toSafeIntegerNumber();
             }
         }
     }
@@ -646,6 +651,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionsFilter.value.tagFilter = '';
         transactionsFilter.value.amountFilter = '';
         transactionsFilter.value.keyword = '';
+        transactionsFilter.value.matchMode = KeywordMatchMode.Default.type;
         transactions.value = [];
         transactionsNextTimeId.value = 0;
         transactionListStateInvalid.value = true;
@@ -712,6 +718,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
         } else {
             transactionsFilter.value.keyword = '';
         }
+
+        if (filter && isNumber(filter.matchMode)) {
+            transactionsFilter.value.matchMode = filter.matchMode;
+        } else {
+            transactionsFilter.value.matchMode = settingsStore.appSettings.defaultKeywordMatchModeInTransactionListPage;
+        }
     }
 
     function updateTransactionListFilter(filter: TransactionListPartialFilter): boolean {
@@ -770,6 +782,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
             changed = true;
         }
 
+        if (filter && isNumber(filter.matchMode) && transactionsFilter.value.matchMode !== filter.matchMode) {
+            transactionsFilter.value.matchMode = filter.matchMode;
+            changed = true;
+        }
+
         return changed;
     }
 
@@ -809,6 +826,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
         if (transactionsFilter.value.keyword) {
             querys.push('keyword=' + encodeURIComponent(transactionsFilter.value.keyword));
+            querys.push('matchMode=' + transactionsFilter.value.matchMode);
         }
 
         return querys.join('&');
@@ -823,7 +841,8 @@ export const useTransactionsStore = defineStore('transactions', () => {
             accountIds: transactionsFilter.value.accountIds,
             tagFilter: transactionsFilter.value.tagFilter,
             amountFilter: transactionsFilter.value.amountFilter,
-            keyword: transactionsFilter.value.keyword
+            keyword: transactionsFilter.value.keyword,
+            matchMode: transactionsFilter.value.matchMode
         };
     }
 
@@ -850,7 +869,8 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 accountIds: transactionsFilter.value.accountIds,
                 tagFilter: transactionsFilter.value.tagFilter,
                 amountFilter: transactionsFilter.value.amountFilter,
-                keyword: transactionsFilter.value.keyword
+                keyword: transactionsFilter.value.keyword,
+                matchMode: transactionsFilter.value.matchMode
             }).then(response => {
                 const data = response.data;
 
@@ -930,6 +950,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 tagFilter: transactionsFilter.value.tagFilter,
                 amountFilter: transactionsFilter.value.amountFilter,
                 keyword: transactionsFilter.value.keyword,
+                matchMode: transactionsFilter.value.matchMode,
                 mustHavePictures: !!mustHavePictures,
                 withPictures: !!withPictures
             }).then(response => {
@@ -1429,7 +1450,32 @@ export const useTransactionsStore = defineStore('transactions', () => {
         });
     }
 
-    function recognizeReceiptImage({ imageFile, cancelableUuid }: { imageFile: File, cancelableUuid?: string }): Promise<RecognizedReceiptImageResponse> {
+    function recognizeTransactionText({ text }: { text: string }): Promise<RecognizedTransactionResponse> {
+        return new Promise((resolve, reject) => {
+            services.recognizeTransactionText({ text }).then(response => {
+                const data = response.data;
+
+                if (!data || !data.success || !data.result) {
+                    reject({ message: 'Unable to recognize text' });
+                    return;
+                }
+
+                resolve(data.result);
+            }).catch(error => {
+                logger.error('failed to recognize text', error);
+
+                if (error.response && error.response.data && error.response.data.errorMessage) {
+                    reject({ error: error.response.data });
+                } else if (!error.processed) {
+                    reject({ message: 'Unable to recognize text' });
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    function recognizeReceiptImage({ imageFile, cancelableUuid }: { imageFile: File, cancelableUuid?: string }): Promise<RecognizedTransactionResponse> {
         return new Promise((resolve, reject) => {
             services.recognizeReceiptImage({ imageFile, cancelableUuid }).then(response => {
                 const data = response.data;
@@ -1487,9 +1533,9 @@ export const useTransactionsStore = defineStore('transactions', () => {
         });
     }
 
-    function parseImportTransaction({ fileType, additionalOptions, fileEncoding, importFile, columnMapping, transactionTypeMapping, hasHeaderLine, timeFormat, timezoneFormat, amountDecimalSeparator, amountDigitGroupingSymbol, geoSeparator, geoOrder, tagSeparator }: { fileType: string, additionalOptions?: ImportFileTypeSupportedAdditionalOptions, fileEncoding?: string, importFile: File, columnMapping?: Record<number, number>, transactionTypeMapping?: Record<string, TransactionType>, hasHeaderLine?: boolean, timeFormat?: string, timezoneFormat?: string, amountDecimalSeparator?: string, amountDigitGroupingSymbol?: string, geoSeparator?: string, geoOrder?: string, tagSeparator?: string }): Promise<ImportTransactionResponsePageWrapper> {
+    function parseImportTransaction({ fileType, additionalOptions, aiAdditionalPrompt, fileEncoding, importFile, columnMapping, transactionTypeMapping, hasHeaderLine, timeFormat, timezoneFormat, amountDecimalSeparator, amountDigitGroupingSymbol, geoSeparator, geoOrder, tagSeparator, cancelableUuid }: { fileType: string, additionalOptions?: ImportFileTypeSupportedAdditionalOptions, aiAdditionalPrompt?: string, fileEncoding?: string, importFile: File, columnMapping?: Record<number, number>, transactionTypeMapping?: Record<string, TransactionType>, hasHeaderLine?: boolean, timeFormat?: string, timezoneFormat?: string, amountDecimalSeparator?: string, amountDigitGroupingSymbol?: string, geoSeparator?: string, geoOrder?: string, tagSeparator?: string, cancelableUuid?: string }): Promise<ImportTransactionResponsePageWrapper> {
         return new Promise((resolve, reject) => {
-            services.parseImportTransaction({ fileType, additionalOptions, fileEncoding, importFile, columnMapping, transactionTypeMapping, hasHeaderLine, timeFormat, timezoneFormat, amountDecimalSeparator, amountDigitGroupingSymbol, geoSeparator, geoOrder, tagSeparator }).then(response => {
+            services.parseImportTransaction({ fileType, additionalOptions, aiAdditionalPrompt, fileEncoding, importFile, columnMapping, transactionTypeMapping, hasHeaderLine, timeFormat, timezoneFormat, amountDecimalSeparator, amountDigitGroupingSymbol, geoSeparator, geoOrder, tagSeparator, cancelableUuid }).then(response => {
                 const data = response.data;
 
                 if (!data || !data.success || !data.result) {
@@ -1682,6 +1728,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         moveAllTransactionsBetweenAccounts,
         deleteTransaction,
         batchDeleteTransactions,
+        recognizeTransactionText,
         recognizeReceiptImage,
         cancelRecognizeReceiptImage,
         parseImportCustomFile,

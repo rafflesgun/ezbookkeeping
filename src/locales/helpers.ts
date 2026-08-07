@@ -32,8 +32,23 @@ import {
 } from '@/core/base.ts';
 
 import {
-    TextDirection
+    TextDirection,
+    KeywordMatchMode
 } from '@/core/text.ts';
+
+import {
+    type BigDecimal,
+    type HiddenAmount,
+    type NumberFormatOptions,
+    type BigDecimalWithSuffix,
+    type NumeralSymbolType,
+    type LocalizedNumeralSymbolType,
+    type LocalizedDigitGroupingType,
+    NumeralSystem,
+    DecimalSeparator,
+    DigitGroupingSymbol,
+    DigitGroupingType
+} from '@/core/numeral.ts';
 
 import {
     type ChineseCalendarLocaleData,
@@ -79,19 +94,6 @@ import {
 } from '@/core/timezone.ts';
 
 import {
-    type HiddenAmount,
-    type NumberFormatOptions,
-    type NumberWithSuffix,
-    type NumeralSymbolType,
-    type LocalizedNumeralSymbolType,
-    type LocalizedDigitGroupingType,
-    NumeralSystem,
-    DecimalSeparator,
-    DigitGroupingSymbol,
-    DigitGroupingType
-} from '@/core/numeral.ts';
-
-import {
     type LocalizedCurrencyInfo,
     type CurrencyPrependAndAppendText,
     CurrencyDisplayType,
@@ -112,6 +114,14 @@ import {
 import {
     PresetAmountColor
 } from '@/core/color.ts';
+
+import {
+    ImageUploadQualityType
+} from '@/core/image.ts';
+
+import {
+    ChartValueType
+} from '@/core/chart.ts';
 
 import {
     type LocalizedAccountCategory,
@@ -229,11 +239,15 @@ import {
 } from '@/lib/calendar/chinese_calendar.ts';
 
 import {
+    BIG_DECIMAL_ZERO,
+    parseBigDecimal,
+    isBigDecimal,
     appendDigitGroupingSymbolAndDecimalSeparator,
     parseAmount,
     formatAmount,
     formatHiddenAmount,
     formatNumber,
+    formatBigDecimal,
     formatPercent,
     formatExchangeRateAmount,
     getAdaptiveDisplayAmountRate
@@ -513,7 +527,8 @@ export function useI18n() {
         const defaultCurrency = userStore.currentUserDefaultCurrency;
 
         const ret = [];
-        const defaultSampleValue = getFormattedAmountWithCurrency(12345, defaultCurrency, defaultCurrencyDisplayType, numeralSystem, decimalSeparator);
+        const sampleBigDecimalValue: BigDecimal = parseBigDecimal(12345);
+        const defaultSampleValue = getFormattedAmountWithCurrency(sampleBigDecimalValue, defaultCurrency, defaultCurrencyDisplayType, numeralSystem, decimalSeparator);
 
         ret.push({
             type: CurrencyDisplayType.LanguageDefaultType,
@@ -523,7 +538,7 @@ export function useI18n() {
         const allCurrencyDisplayTypes = CurrencyDisplayType.values();
 
         for (const type of allCurrencyDisplayTypes) {
-            const sampleValue = getFormattedAmountWithCurrency(12345, defaultCurrency, type, numeralSystem, decimalSeparator);
+            const sampleValue = getFormattedAmountWithCurrency(sampleBigDecimalValue, defaultCurrency, type, numeralSystem, decimalSeparator);
             const displayName = `${t(type.name)} (${sampleValue})`
 
             ret.push({
@@ -554,6 +569,28 @@ export function useI18n() {
                 type: calendarDisplayType.type,
                 displayName: t('calendar.' + calendarDisplayType.name)
             });
+        }
+
+        return ret;
+    }
+
+    function getAllImageUploadQualityTypes(): TypeAndDisplayName[] {
+        const ret: TypeAndDisplayName[] = [];
+
+        for (const qualityType of ImageUploadQualityType.values()) {
+            if (isNumber(qualityType.maxLongSidePixels)) {
+                ret.push({
+                    type: qualityType.type,
+                    displayName: t(`format.volume.${qualityType.name}`, {
+                        size: qualityType.estimatedKiB ? appendDigitGroupingSymbolAndDecimalSeparator(qualityType.estimatedKiB.toString(), getNumberFormatOptions({})) : '-',
+                    })
+                });
+            } else {
+                ret.push({
+                    type: qualityType.type,
+                    displayName: t(qualityType.name)
+                })
+            }
         }
 
         return ret;
@@ -915,6 +952,10 @@ export function useI18n() {
         const separator = t('format.misc.multiTextJoinSeparator');
 
         return textArray.join(separator);
+    }
+
+    function formatRange(start: string, end: string): string {
+        return t('format.misc.startEndRange', { start: start, end: end });
     }
 
     function getServerMultiLanguageConfigContent(multiLanguageConfig: Record<string, string>): string {
@@ -1528,7 +1569,7 @@ export function useI18n() {
         return availableExchangeRates;
     }
 
-    function getAllSupportedImportFileCagtegoryAndTypes(): LocalizedImportFileCategoryAndTypes[] {
+    function getAllSupportedImportFileCagtegoryAndTypes(supportAITextRecognition: boolean, supportAIImageRecognition: boolean): LocalizedImportFileCategoryAndTypes[] {
         const allSupportedImportFileCategoryAndTypes: LocalizedImportFileCategoryAndTypes[] = [];
 
         for (const categoryAndTypes of SUPPORTED_IMPORT_FILE_CATEGORY_AND_TYPES) {
@@ -1538,6 +1579,14 @@ export function useI18n() {
             };
 
             for (const fileType of categoryAndTypes.fileTypes) {
+                if (fileType.needAITextRecognition && !supportAITextRecognition) {
+                    continue;
+                }
+
+                if (fileType.needAIImageRecognition && !supportAIImageRecognition) {
+                    continue;
+                }
+
                 let document: LocalizedImportFileDocument | undefined;
 
                 if (fileType.document) {
@@ -1621,7 +1670,10 @@ export function useI18n() {
                     subTypes: subTypes.length ? subTypes : undefined,
                     supportedEncodings: supportedEncodings.length ? supportedEncodings : undefined,
                     dataFromTextbox: fileType.dataFromTextbox,
+                    needAITextRecognition: fileType.needAITextRecognition,
+                    needAIImageRecognition: fileType.needAIImageRecognition,
                     supportedAdditionalOptions: fileType.supportedAdditionalOptions,
+                    supportedAIAdditionalPrompt: fileType.supportedAIAdditionalPrompt,
                     document: document
                 };
 
@@ -2013,7 +2065,7 @@ export function useI18n() {
             const displayStartTime = formatUnixTime(startTime, format, gregorianLikeDateTimeFormatOptions);
             const displayEndTime = formatUnixTime(endTime, format, gregorianLikeDateTimeFormatOptions);
 
-            return displayStartTime !== displayEndTime ? `${displayStartTime} ~ ${displayEndTime}` : displayStartTime;
+            return displayStartTime !== displayEndTime ? formatRange(displayStartTime, displayEndTime) : displayStartTime;
         }
 
         if (isDateRangeMatchFullMonths(startTime, endTime)) {
@@ -2021,7 +2073,7 @@ export function useI18n() {
             const displayStartTime = formatUnixTime(startTime, format, gregorianLikeDateTimeFormatOptions);
             const displayEndTime = formatUnixTime(endTime, format, gregorianLikeDateTimeFormatOptions);
 
-            return displayStartTime !== displayEndTime ? `${displayStartTime} ~ ${displayEndTime}` : displayStartTime;
+            return displayStartTime !== displayEndTime ? formatRange(displayStartTime, displayEndTime) : displayStartTime;
         }
 
         const startTimeYear = parseDateTimeFromUnixTime(startTime).getLocalizedCalendarYear(gregorianLikeDateTimeFormatOptions);
@@ -2035,10 +2087,10 @@ export function useI18n() {
             return displayStartTime;
         } else if (startTimeYear === endTimeYear) {
             const displayShortEndTime = formatUnixTime(endTime, getLocalizedShortMonthDayFormat(), gregorianLikeDateTimeFormatOptions);
-            return `${displayStartTime} ~ ${displayShortEndTime}`;
+            return formatRange(displayStartTime, displayShortEndTime);
         }
 
-        return `${displayStartTime} ~ ${displayEndTime}`;
+        return formatRange(displayStartTime, displayEndTime);
     }
 
     function getTimezoneDifferenceDisplayText(unixTime: number, utcOffset: number): string {
@@ -2144,12 +2196,12 @@ export function useI18n() {
         return parseAmount(value, numberFormatOptions);
     }
 
-    function getFormattedAmount(value: number, numeralSystem?: NumeralSystem, digitGrouping?: DigitGroupingType, currencyCode?: string): string {
+    function getFormattedAmount(value: BigDecimal, numeralSystem?: NumeralSystem, digitGrouping?: DigitGroupingType, currencyCode?: string): string {
         const numberFormatOptions = getNumberFormatOptions({ numeralSystem, digitGrouping, currencyCode });
         return formatAmount(value, numberFormatOptions);
     }
 
-    function getFormattedAmountWithCurrency(value: number | HiddenAmount | NumberWithSuffix, currencyCode?: string | false, currencyDisplayType?: CurrencyDisplayType, numeralSystem?: NumeralSystem, decimalSeparator?: string): string {
+    function getFormattedAmountWithCurrency(value: BigDecimal | HiddenAmount | BigDecimalWithSuffix, currencyCode?: string | false, currencyDisplayType?: CurrencyDisplayType, numeralSystem?: NumeralSystem, decimalSeparator?: string): string {
         let finalCurrencyCode = '';
 
         if (!isBoolean(currencyCode) && !currencyCode) {
@@ -2170,7 +2222,7 @@ export function useI18n() {
 
         let suffix = '';
 
-        if (isObject(value) && isNumber(value.value) && isString(value.suffix)) {
+        if (isObject(value) && 'suffix' in value && value.value && isString(value.suffix)) {
             suffix = value.suffix;
             value = value.value;
         }
@@ -2178,8 +2230,8 @@ export function useI18n() {
         const numberFormatOptions = getNumberFormatOptions({ numeralSystem, decimalSeparator, currencyCode: finalCurrencyCode });
         const currencyName = getCurrencyName(finalCurrencyCode);
 
-        if (isNumber(value)) {
-            const isPlural: boolean = value !== AMOUNT_FACTOR && value !== -AMOUNT_FACTOR;
+        if (isBigDecimal(value)) {
+            const isPlural: boolean = value.notEquals(AMOUNT_FACTOR) && value.notEquals(-AMOUNT_FACTOR);
             const textualValue = formatAmount(value, numberFormatOptions);
 
             if (!finalCurrencyCode) {
@@ -2214,9 +2266,24 @@ export function useI18n() {
         return formatNumber(value, numberFormatOptions, precision);
     }
 
+    function getFormattedBigDecimal(value: BigDecimal, numeralSystem?: NumeralSystem, digitGrouping?: DigitGroupingType, precision?: number): string {
+        const numberFormatOptions = getNumberFormatOptions({ numeralSystem, digitGrouping: digitGrouping });
+        return formatBigDecimal(value, numberFormatOptions, precision);
+    }
+
     function getFormattedPercentValue(value: number, precision: number, lowPrecisionValue: string, numeralSystem?: NumeralSystem): string {
         const numberFormatOptions = getNumberFormatOptions({ numeralSystem });
         return formatPercent(value, precision, lowPrecisionValue, numberFormatOptions);
+    }
+
+    function getFormattedChartValue(value: BigDecimal, valueType: ChartValueType, currencyCode?: string) {
+        if (valueType === ChartValueType.Amount) {
+            return getFormattedAmountWithCurrency(value, currencyCode);
+        } else if (valueType === ChartValueType.Percent) {
+            return getFormattedPercentValue(value.toDoubleNumber(), 2, '<0.01');
+        } else {
+            return getFormattedBigDecimal(value, undefined, undefined, 4);
+        }
     }
 
     function getFormattedVolume(value: number, precision?: number, unit?: 'KiB' | 'MiB'): string {
@@ -2244,7 +2311,7 @@ export function useI18n() {
         return formatNumber(value, numberFormatOptions, precision) + ' ' + displayUnit;
     }
 
-    function getFormattedExchangeRateAmount(value: number, numeralSystem?: NumeralSystem): string {
+    function getFormattedExchangeRateAmount(value: BigDecimal, numeralSystem?: NumeralSystem): string {
         const numberFormatOptions = getNumberFormatOptions({ numeralSystem });
         return formatExchangeRateAmount(value, numberFormatOptions);
     }
@@ -2281,9 +2348,9 @@ export function useI18n() {
                     let accountWithDisplaceBalance: AccountWithDisplayBalance;
 
                     if (showAccountBalance && account.isAsset) {
-                        accountWithDisplaceBalance = AccountWithDisplayBalance.fromAccount(account, getFormattedAmountWithCurrency(account.balance, account.currency));
+                        accountWithDisplaceBalance = AccountWithDisplayBalance.fromAccount(account, getFormattedAmountWithCurrency(parseBigDecimal(account.balance), account.currency));
                     } else if (showAccountBalance && account.isLiability) {
-                        accountWithDisplaceBalance = AccountWithDisplayBalance.fromAccount(account, getFormattedAmountWithCurrency(-account.balance, account.currency));
+                        accountWithDisplaceBalance = AccountWithDisplayBalance.fromAccount(account, getFormattedAmountWithCurrency(parseBigDecimal(account.balance).negate(), account.currency));
                     } else {
                         accountWithDisplaceBalance = AccountWithDisplayBalance.fromAccount(account, DISPLAY_HIDDEN_AMOUNT);
                     }
@@ -2297,28 +2364,28 @@ export function useI18n() {
             if (showAccountBalance) {
                 const accountsBalance = getAllFilteredAccountsBalance(categorizedAccounts, customAccountCategoryOrder,
                         account => account.category === accountCategory.category);
-                let totalBalance = 0;
+                let totalBalance: BigDecimal = BIG_DECIMAL_ZERO;
                 let hasUnCalculatedAmount = false;
 
                 for (const accountBalance of accountsBalance) {
                     if (accountBalance.currency === defaultCurrency) {
                         if (accountBalance.isAsset) {
-                            totalBalance += accountBalance.balance;
+                            totalBalance = totalBalance.add(accountBalance.balance);
                         } else if (accountBalance.isLiability) {
-                            totalBalance -= accountBalance.balance;
+                            totalBalance = totalBalance.subtract(accountBalance.balance);
                         }
                     } else {
                         const balance = exchangeRatesStore.getExchangedAmount(accountBalance.balance, accountBalance.currency, defaultCurrency);
 
-                        if (!isNumber(balance)) {
+                        if (!balance) {
                             hasUnCalculatedAmount = true;
                             continue;
                         }
 
                         if (accountBalance.isAsset) {
-                            totalBalance += Math.trunc(balance);
+                            totalBalance = totalBalance.add(balance.truncate());
                         } else if (accountBalance.isLiability) {
-                            totalBalance -= Math.trunc(balance);
+                            totalBalance = totalBalance.subtract(balance.truncate());
                         }
                     }
                 }
@@ -2502,6 +2569,7 @@ export function useI18n() {
         ti: translateIf,
         te: translateError,
         joinMultiText,
+        formatRange,
         getServerMultiLanguageConfigContent,
         // get current language info
         getCurrentLanguageTag,
@@ -2543,6 +2611,8 @@ export function useI18n() {
         getAllCurrencyDisplayTypes,
         getAllCurrencySortingTypes: () => getLocalizedDisplayNameAndType(CurrencySortingType.values()),
         getAllCoordinateDisplayTypes: () => getLocalizedDisplayNameAndTypeWithSystemDefault(CoordinateDisplayType.values(), CoordinateDisplayType.SystemDefaultType, CoordinateDisplayType.Default),
+        getAllKeywordMatchModes: () => getLocalizedDisplayNameAndType(KeywordMatchMode.values()),
+        getAllImageUploadQualityTypes,
         getAllExpenseAmountColors: () => getAllExpenseIncomeAmountColors(CategoryType.Expense),
         getAllIncomeAmountColors: () => getAllExpenseIncomeAmountColors(CategoryType.Income),
         getAllAccountCategories,
@@ -2647,20 +2717,23 @@ export function useI18n() {
         // format amount/number functions
         parseAmountFromLocalizedNumerals: (value: string) => getParsedAmountNumber(value),
         parseAmountFromWesternArabicNumerals: (value: string) => getParsedAmountNumber(value, NumeralSystem.WesternArabicNumerals),
-        formatAmountToLocalizedNumerals: (value: number, currencyCode?: string) => getFormattedAmount(value, undefined, undefined, currencyCode),
-        formatAmountToWesternArabicNumerals: (value: number, currencyCode?: string) => getFormattedAmount(value, NumeralSystem.WesternArabicNumerals, undefined, currencyCode),
-        formatAmountToLocalizedNumeralsWithoutDigitGrouping: (value: number, currencyCode?: string) => getFormattedAmount(value, undefined, DigitGroupingType.None, currencyCode),
-        formatAmountToWesternArabicNumeralsWithoutDigitGrouping: (value: number, currencyCode?: string) => getFormattedAmount(value, NumeralSystem.WesternArabicNumerals, DigitGroupingType.None, currencyCode),
-        formatAmountToLocalizedNumeralsWithCurrency: (value: number | HiddenAmount | NumberWithSuffix, currencyCode?: string | false, currencyDisplayType?: CurrencyDisplayType) => getFormattedAmountWithCurrency(value, currencyCode, currencyDisplayType),
-        formatAmountToWesternArabicNumeralsWithCurrency: (value: number | HiddenAmount | NumberWithSuffix, currencyCode?: string | false, currencyDisplayType?: CurrencyDisplayType) => getFormattedAmountWithCurrency(value, currencyCode, currencyDisplayType, NumeralSystem.WesternArabicNumerals),
+        formatAmountToLocalizedNumerals: (value: BigDecimal, currencyCode?: string) => getFormattedAmount(value, undefined, undefined, currencyCode),
+        formatAmountToWesternArabicNumerals: (value: BigDecimal, currencyCode?: string) => getFormattedAmount(value, NumeralSystem.WesternArabicNumerals, undefined, currencyCode),
+        formatAmountToLocalizedNumeralsWithoutDigitGrouping: (value: BigDecimal, currencyCode?: string) => getFormattedAmount(value, undefined, DigitGroupingType.None, currencyCode),
+        formatAmountToWesternArabicNumeralsWithoutDigitGrouping: (value: BigDecimal, currencyCode?: string) => getFormattedAmount(value, NumeralSystem.WesternArabicNumerals, DigitGroupingType.None, currencyCode),
+        formatAmountToLocalizedNumeralsWithCurrency: (value: BigDecimal | HiddenAmount | BigDecimalWithSuffix, currencyCode?: string | false, currencyDisplayType?: CurrencyDisplayType) => getFormattedAmountWithCurrency(value, currencyCode, currencyDisplayType),
+        formatAmountToWesternArabicNumeralsWithCurrency: (value: BigDecimal | HiddenAmount | BigDecimalWithSuffix, currencyCode?: string | false, currencyDisplayType?: CurrencyDisplayType) => getFormattedAmountWithCurrency(value, currencyCode, currencyDisplayType, NumeralSystem.WesternArabicNumerals),
+        formatBigDecimalToLocalizedNumerals: (value: BigDecimal, precision?: number) => getFormattedBigDecimal(value, undefined, undefined, precision),
+        formatBigDecimalToLocalizedNumeralsWithoutDigitGrouping: (value: BigDecimal, precision?: number) => getFormattedBigDecimal(value, undefined, DigitGroupingType.None, precision),
+        formatBigDecimalToWesternArabicNumerals: (value: BigDecimal, precision?: number) => getFormattedBigDecimal(value, NumeralSystem.WesternArabicNumerals, undefined, precision),
+        formatBigDecimalToWesternArabicNumeralsWithoutDigitGrouping: (value: BigDecimal, precision?: number) => getFormattedBigDecimal(value, NumeralSystem.WesternArabicNumerals, DigitGroupingType.None, precision),
         formatNumberToLocalizedNumerals: (value: number, precision?: number) => getFormattedNumber(value, undefined, undefined, precision),
         formatNumberToLocalizedNumeralsWithoutDigitGrouping: (value: number, precision?: number) => getFormattedNumber(value, undefined, DigitGroupingType.None, precision),
-        formatNumberToWesternArabicNumerals: (value: number, precision?: number) => getFormattedNumber(value, NumeralSystem.WesternArabicNumerals, undefined, precision),
-        formatNumberToWesternArabicNumeralsWithoutDigitGrouping: (value: number, precision?: number) => getFormattedNumber(value, NumeralSystem.WesternArabicNumerals, DigitGroupingType.None, precision),
         formatPercentToLocalizedNumerals: (value: number, precision: number, lowPrecisionValue: string) => getFormattedPercentValue(value, precision, lowPrecisionValue),
         formatPercentToWesternArabicNumerals: (value: number, precision: number, lowPrecisionValue: string) => getFormattedPercentValue(value, precision, lowPrecisionValue, NumeralSystem.WesternArabicNumerals),
+        formatChartValueToLocalizedNumerals: getFormattedChartValue,
         formatVolumeToLocalizedNumerals: getFormattedVolume,
-        formatExchangeRateAmountToWesternArabicNumerals: (value: number) => getFormattedExchangeRateAmount(value, NumeralSystem.WesternArabicNumerals),
+        formatExchangeRateAmountToWesternArabicNumerals: (value: BigDecimal) => getFormattedExchangeRateAmount(value, NumeralSystem.WesternArabicNumerals),
         appendDigitGroupingSymbolAndDecimalSeparator: (value: string) => appendDigitGroupingSymbolAndDecimalSeparator(value, getNumberFormatOptions({})),
         getAdaptiveAmountRate,
         getAmountPrependAndAppendText,

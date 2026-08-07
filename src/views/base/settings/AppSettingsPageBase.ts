@@ -10,14 +10,14 @@ import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useOverviewStore } from '@/stores/overview.ts';
 import { useStatisticsStore } from '@/stores/statistics.ts';
 
-import { type NameValue, type TypeAndDisplayName, keysIfValueEquals, values } from '@/core/base.ts';
+import type { NameValue, TypeAndDisplayName } from '@/core/base.ts';
 import { DateRangeScene, DateRange } from '@/core/datetime.ts';
 import type { LocalizedTimezoneInfo } from '@/core/timezone.ts';
-import { CategoryType } from '@/core/category.ts';
-import type { Account } from '@/models/account.ts';
 
 import { isObjectEmpty } from '@/lib/common.ts';
 import { getCurrentUnixTime } from '@/lib/datetime.ts';
+import { getIncludedAccountsDisplayContent } from '@/lib/account.ts';
+import { getIncludedTransactionCategoriesDisplayContent } from '@/lib/category.ts';
 
 export function useAppSettingPageBase() {
     const {
@@ -26,6 +26,8 @@ export function useAppSettingPageBase() {
         getAllTimezones,
         getAllTimezoneTypesUsedForStatistics,
         getAllCurrencySortingTypes,
+        getAllKeywordMatchModes,
+        getAllImageUploadQualityTypes,
         setTimeZone
     } = useI18n();
 
@@ -51,6 +53,7 @@ export function useAppSettingPageBase() {
     const allTimezones = computed<LocalizedTimezoneInfo[]>(() => getAllTimezones(getCurrentUnixTime(), true));
     const allTimezoneTypesUsedForStatistics = computed<TypeAndDisplayName[]>(() => getAllTimezoneTypesUsedForStatistics());
     const allCurrencySortingTypes = computed<TypeAndDisplayName[]>(() => getAllCurrencySortingTypes());
+    const allKeywordMatchModes = computed<TypeAndDisplayName[]>(() => getAllKeywordMatchModes());
 
     const allAutoSaveTransactionDraftTypes = computed<NameValue[]>(() => {
         return [
@@ -59,6 +62,8 @@ export function useAppSettingPageBase() {
             { name: tt('Always Show Confirmation'), value: 'confirmation' }
         ];
     });
+
+    const allImageUploadQualityTypes = computed<TypeAndDisplayName[]>(() => getAllImageUploadQualityTypes());
 
     const allReconciliationStatementDateRanges = computed(() => getAllDateRanges(DateRangeScene.Normal, {
         includeCustom: true,
@@ -114,6 +119,11 @@ export function useAppSettingPageBase() {
         set: (value) => settingsStore.setShowTagInTransactionListPage(value)
     });
 
+    const defaultKeywordMatchModeInTransactionListPage = computed<number>({
+        get: () => settingsStore.appSettings.defaultKeywordMatchModeInTransactionListPage,
+        set: (value: number) => settingsStore.setDefaultKeywordMatchModeInTransactionListPage(value)
+    });
+
     const itemsCountInTransactionListPage = computed<number>({
         get: () => settingsStore.appSettings.itemsCountInTransactionListPage,
         set: (value) => settingsStore.setItemsCountInTransactionListPage(value)
@@ -135,19 +145,52 @@ export function useAppSettingPageBase() {
         set: (value) => settingsStore.setAutoGetCurrentGeoLocation(value)
     });
 
+    const transactionPictureQuality = computed<number>({
+        get: () => settingsStore.appSettings.transactionPictureQuality,
+        set: (value: number) => settingsStore.setTransactionPictureQuality(value)
+    });
+
+    const isAlwaysRequireConfirmationOfClipboardContentBeforeSubmission = computed<boolean>({
+        get: () => settingsStore.appSettings.alwaysRequireConfirmationOfClipboardContentBeforeSubmission,
+        set: (value: boolean) => settingsStore.setAlwaysRequireConfirmationOfClipboardContentBeforeSubmission(value)
+    });
+
+    const isAutoUploadTransactionPictureForAIRecognition = computed<boolean>({
+        get: () => settingsStore.appSettings.autoUploadTransactionPictureForAIRecognition,
+        set: (value: boolean) => settingsStore.setAutoUploadTransactionPictureForAIRecognition(value)
+    });
+
     const currencySortByInExchangeRatesPage = computed<number>({
         get: () => settingsStore.appSettings.currencySortByInExchangeRatesPage,
         set: (value: number) => settingsStore.setCurrencySortByInExchangeRatesPage(value)
     });
 
+    const chartColorSchemeContent = computed<string>(() => {
+        if (!settingsStore.appSettings.chartColors) {
+            return tt('Default');
+        }
+
+        return tt('Custom');
+    });
+
     const accountsIncludedInHomePageOverviewDisplayContent = computed<string>(() => {
+        if (loadingAccounts.value) {
+            return '';
+        }
+
         const excludeAccountIds = settingsStore.appSettings.overviewAccountFilterInHomePage;
-        return getIncludedAccountsDisplayContent(excludeAccountIds, accountsStore.allPlainAccounts);
+        const displayContent = getIncludedAccountsDisplayContent(excludeAccountIds, accountsStore.allPlainAccounts, accountsStore.allAccountsMap);
+        return displayContent ? tt(displayContent) : displayContent;
     });
 
     const accountsIncludedInTotalDisplayContent = computed<string>(() => {
+        if (loadingAccounts.value) {
+            return '';
+        }
+
         const excludeAccountIds = settingsStore.appSettings.totalAmountExcludeAccountIds;
-        return getIncludedAccountsDisplayContent(excludeAccountIds, accountsStore.allVisiblePlainAccounts);
+        const displayContent = getIncludedAccountsDisplayContent(excludeAccountIds, accountsStore.allVisiblePlainAccounts, accountsStore.allAccountsMap);
+        return displayContent ? tt(displayContent) : displayContent;
     });
 
     const accountCategorysDisplayOrderContent = computed<string>(() => {
@@ -159,81 +202,14 @@ export function useAppSettingPageBase() {
     });
 
     const transactionCategoriesIncludedInHomePageOverviewDisplayContent = computed<string>(() => {
+        if (loadingTransactionCategories.value) {
+            return '';
+        }
+
         const excludeAccountIds = settingsStore.appSettings.overviewTransactionCategoryFilterInHomePage;
-        return getIncludedTransactionCategoriesDisplayContent(excludeAccountIds);
+        const displayContent = getIncludedTransactionCategoriesDisplayContent(excludeAccountIds, transactionCategoriesStore.allTransactionCategoriesMap);
+        return displayContent ? tt(displayContent) : displayContent;
     });
-
-    function getIncludedAccountsDisplayContent(excludeAccountIds: Record<string, boolean>, allAccounts: Account[]): string {
-        if (loadingAccounts.value || !allAccounts || !allAccounts.length) {
-            return '';
-        }
-
-        let hasExcludeAccount = false;
-
-        for (const accountId of keysIfValueEquals(excludeAccountIds, true)) {
-            if (accountsStore.allAccountsMap[accountId]) {
-                hasExcludeAccount = true;
-                break;
-            }
-        }
-
-        if (!hasExcludeAccount) {
-            return tt('All');
-        }
-
-        let allAccountExcluded = true;
-
-        for (const account of allAccounts) {
-            if (!excludeAccountIds[account.id]) {
-                allAccountExcluded = false;
-                break;
-            }
-        }
-
-        if (allAccountExcluded) {
-            return tt('None');
-        }
-
-        return tt('Partial');
-    }
-
-    function getIncludedTransactionCategoriesDisplayContent(excludeTransactionCategoryIds: Record<string, boolean>): string {
-        if (loadingTransactionCategories.value || !transactionCategoriesStore.allTransactionCategoriesMap) {
-            return '';
-        }
-
-        let hasExcludeTransactionCategory = false;
-
-        for (const transactionCategoryId of keysIfValueEquals(excludeTransactionCategoryIds, true)) {
-            if (transactionCategoriesStore.allTransactionCategoriesMap[transactionCategoryId]) {
-                hasExcludeTransactionCategory = true;
-                break;
-            }
-        }
-
-        if (!hasExcludeTransactionCategory) {
-            return tt('All');
-        }
-
-        let allTransactionCategoryExcluded = true;
-
-        for (const transactionCategory of values(transactionCategoriesStore.allTransactionCategoriesMap)) {
-            if (transactionCategory.type !== CategoryType.Income && transactionCategory.type !== CategoryType.Expense) {
-                continue;
-            }
-
-            if (!excludeTransactionCategoryIds[transactionCategory.id]) {
-                allTransactionCategoryExcluded = false;
-                break;
-            }
-        }
-
-        if (allTransactionCategoryExcluded) {
-            return tt('None');
-        }
-
-        return tt('Partial');
-    }
 
     function getValidReconciliationStatementPageDefaultDateRangeType(value: number, defaultValue: number): number {
         if (DateRange.isLastReconciledTimeRange(value) && !userStore.currentUserUseLastReconciledTime) {
@@ -252,22 +228,29 @@ export function useAppSettingPageBase() {
         allTimezones,
         allTimezoneTypesUsedForStatistics,
         allCurrencySortingTypes,
+        allKeywordMatchModes,
         allAutoSaveTransactionDraftTypes,
+        allImageUploadQualityTypes,
         allReconciliationStatementDateRanges,
         timeZone,
         hasAnyAccount,
         hasAnyVisibleAccount,
         hasAnyTransactionCategory,
         isAutoUpdateExchangeRatesData,
+        transactionPictureQuality,
+        isAlwaysRequireConfirmationOfClipboardContentBeforeSubmission,
+        isAutoUploadTransactionPictureForAIRecognition,
         showAccountBalance,
         showAmountInHomePage,
         itemsCountInTransactionListPage,
         timezoneUsedForStatisticsInHomePage,
         showTotalAmountInTransactionListPage,
         showTagInTransactionListPage,
+        defaultKeywordMatchModeInTransactionListPage,
         autoSaveTransactionDraft,
         isAutoGetCurrentGeoLocation,
         currencySortByInExchangeRatesPage,
+        chartColorSchemeContent,
         accountsIncludedInHomePageOverviewDisplayContent,
         accountsIncludedInTotalDisplayContent,
         accountCategorysDisplayOrderContent,

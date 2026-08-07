@@ -12,7 +12,7 @@
                         :disabled="loading || disabled"
                         :label="tt('Data Source')"
                         :items="allDataTableQuerySources"
-                        v-model="currentExplorer.datatableQuerySource"
+                        v-model="currentExploration.datatableQuerySource"
                     />
                     <v-select
                         class="flex-0-0"
@@ -23,7 +23,7 @@
                         :disabled="loading || disabled"
                         :label="tt('Transactions Per Page')"
                         :items="allPageCounts"
-                        v-model="currentExplorer.countPerPage"
+                        v-model="currentExploration.countPerPage"
                     />
                     <v-spacer/>
                     <div class="d-flex align-center">
@@ -89,24 +89,28 @@
                                     <td class="text-end">{{ formatAmountToLocalizedNumeralsWithCurrency(filteredTransactionsStatistic.interquartileRange) }}</td>
                                 </tr>
                                 <tr>
+                                    <td>{{ tt('Median-to-Mean Ratio') }}</td>
+                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.medianToMeanRatio) ? formatBigDecimalToLocalizedNumerals(filteredTransactionsStatistic.medianToMeanRatio, 2) : '-' }}</td>
+                                </tr>
+                                <tr>
                                     <td>{{ tt('Top 5 Amount Share') }}</td>
-                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.top5AmountShare) ? formatPercentToLocalizedNumerals(filteredTransactionsStatistic.top5AmountShare, 2, '<0.01') : '-' }}</td>
+                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.top5AmountShare) ? formatPercentToLocalizedNumerals(filteredTransactionsStatistic.top5AmountShare.toDoubleNumber(), 2, '<0.01') : '-' }}</td>
                                 </tr>
                                 <tr>
                                     <td>{{ tt('Transactions for 80% of Amount') }}</td>
-                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.transactionsFor80PercentAmount) ? formatPercentToLocalizedNumerals(filteredTransactionsStatistic.transactionsFor80PercentAmount, 2, '<0.01') : '-' }}</td>
+                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.transactionsFor80PercentAmount) ? formatPercentToLocalizedNumerals(filteredTransactionsStatistic.transactionsFor80PercentAmount.toDoubleNumber(), 2, '<0.01') : '-' }}</td>
                                 </tr>
                                 <tr>
                                     <td>{{ tt('Variance') }}</td>
-                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.variance) ? formatNumberToLocalizedNumerals(filteredTransactionsStatistic.variance, 2) : '-' }}</td>
+                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.variance) ? formatBigDecimalToLocalizedNumerals(filteredTransactionsStatistic.variance, 2) : '-' }}</td>
                                 </tr>
                                 <tr>
                                     <td>{{ tt('Standard Deviation') }}</td>
-                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.standardDeviation) ? formatNumberToLocalizedNumerals(filteredTransactionsStatistic.standardDeviation, 2) : '-' }}</td>
+                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.standardDeviation) ? formatBigDecimalToLocalizedNumerals(filteredTransactionsStatistic.standardDeviation, 2) : '-' }}</td>
                                 </tr>
                                 <tr>
                                     <td>{{ tt('Coefficient of Variation') }}</td>
-                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.coefficientOfVariation) ? formatNumberToLocalizedNumerals(filteredTransactionsStatistic.coefficientOfVariation, 2) : '-' }}</td>
+                                    <td class="text-end">{{ isDefined(filteredTransactionsStatistic.coefficientOfVariation) ? formatBigDecimalToLocalizedNumerals(filteredTransactionsStatistic.coefficientOfVariation, 2) : '-' }}</td>
                                 </tr>
                                 </tbody>
                             </v-table>
@@ -121,11 +125,11 @@
         fixed-footer
         multi-sort
         item-value="index"
-        :class="{ 'insights-explorer-table': true, 'text-sm': true, 'disabled': loading || disabled, 'loading-skeleton': loading }"
+        :class="{ 'insights-explorer-table': true, 'disabled': loading || disabled, 'loading-skeleton': loading }"
         :headers="dataTableHeaders"
         :items="filteredTransactions"
         :hover="true"
-        v-model:items-per-page="currentExplorer.countPerPage"
+        v-model:items-per-page="currentExploration.countPerPage"
         v-model:page="currentPage"
     >
         <template #item.time="{ item }">
@@ -158,6 +162,11 @@
             <span :class="{ 'text-expense': item.type === TransactionType.Expense, 'text-income': item.type === TransactionType.Income }">{{ getDisplaySourceAmount(item) }}</span>
             <v-icon class="icon-with-direction mx-1" size="13" :icon="mdiArrowRight" v-if="item.type === TransactionType.Transfer && item.sourceAccount?.id !== item.destinationAccount?.id && getDisplaySourceAmount(item) !== getDisplayDestinationAmount(item)"></v-icon>
             <span v-if="item.type === TransactionType.Transfer && item.sourceAccount?.id !== item.destinationAccount?.id && getDisplaySourceAmount(item) !== getDisplayDestinationAmount(item)">{{ getDisplayDestinationAmount(item) }}</span>
+            <v-tooltip activator="parent" v-if="!item.hideAmount && ((item.type !== TransactionType.Transfer && item.sourceAccount?.currency !== defaultCurrency) || (item.type === TransactionType.Transfer && item.sourceAccount?.currency !== defaultCurrency && item.destinationAccount?.currency !== defaultCurrency))">
+                <span>{{ getDisplaySourceAmount(item, true) }}</span>
+                <v-icon class="ms-1" size="13" :icon="mdiArrowRight" v-if="item.type === TransactionType.Transfer && item.sourceAccount?.id !== item.destinationAccount?.id && item.sourceAccount?.currency !== item.destinationAccount?.currency && item.sourceAmount !== item.destinationAmount"></v-icon>
+                <span v-if="item.type === TransactionType.Transfer && item.sourceAccount?.id !== item.destinationAccount?.id && item.sourceAccount?.currency !== item.destinationAccount?.currency && item.sourceAmount !== item.destinationAmount">{{ getDisplayDestinationAmount(item, true) }}</span>
+            </v-tooltip>
         </template>
         <template #item.sourceAccountName="{ item }">
             <div class="d-flex align-center">
@@ -221,6 +230,10 @@ import type { TransactionInsightDataItem } from '@/models/transaction.ts';
 import { isDefined, replaceAll } from '@/lib/common.ts';
 
 import {
+    parseBigDecimal
+} from '@/lib/numeral.ts';
+
+import {
     parseDateTimeFromUnixTimeWithTimezoneOffset
 } from '@/lib/datetime.ts';
 
@@ -246,13 +259,15 @@ const {
     formatDateTimeToGregorianDefaultDateTime,
     formatAmountToWesternArabicNumeralsWithoutDigitGrouping,
     formatAmountToLocalizedNumeralsWithCurrency,
+    formatBigDecimalToLocalizedNumerals,
     formatNumberToLocalizedNumerals,
     formatPercentToLocalizedNumerals
 } = useI18n();
 
 const {
     currentPage,
-    currentExplorer,
+    defaultCurrency,
+    currentExploration,
     filteredTransactions,
     allDataTableQuerySources,
     allPageCounts,
@@ -307,13 +322,13 @@ function buildExportResults(): { headers: string[], data: string[][] } | undefin
                 const type = getDisplayTransactionType(transaction);
 
                 let categoryName = transaction.secondaryCategoryName;
-                let displayAmount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(transaction.sourceAmount, transaction.sourceAccount?.currency);
+                let displayAmount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(parseBigDecimal(transaction.sourceAmount), transaction.sourceAccount?.currency);
                 let displayAccountName = transaction.sourceAccountName;
 
                 if (transaction.type === TransactionType.ModifyBalance) {
                     categoryName = tt('Modify Balance');
                 } else if (transaction.type === TransactionType.Transfer && transaction.sourceAccount?.id !== transaction.destinationAccount?.id && getDisplaySourceAmount(transaction) !== getDisplayDestinationAmount(transaction)) {
-                    displayAmount = displayAmount + ' → ' + formatAmountToWesternArabicNumeralsWithoutDigitGrouping(transaction.destinationAmount, transaction.destinationAccount?.currency);
+                    displayAmount = displayAmount + ' → ' + formatAmountToWesternArabicNumeralsWithoutDigitGrouping(parseBigDecimal(transaction.destinationAmount), transaction.destinationAccount?.currency);
                 }
 
                 if (transaction.type === TransactionType.Transfer && transaction.destinationAccount) {

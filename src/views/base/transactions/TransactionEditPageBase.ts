@@ -10,13 +10,14 @@ import { useTransactionTagsStore } from '@/stores/transactionTag.ts';
 import { useTransactionsStore } from '@/stores/transaction.ts';
 import { useExchangeRatesStore } from '@/stores/exchangeRates.ts';
 
-import type { NumeralSystem } from '@/core/numeral.ts';
+import type { BigDecimal, NumeralSystem } from '@/core/numeral.ts';
 import type { WeekDayValue } from '@/core/datetime.ts';
 import type { LocalizedTimezoneInfo } from '@/core/timezone.ts';
+import { ImageUploadQualityType } from '@/core/image.ts';
 import { TransactionType, TransactionQuickAddButtonActionType } from '@/core/transaction.ts';
 import { TemplateType } from '@/core/template.ts';
 import { DISPLAY_HIDDEN_AMOUNT } from '@/consts/numeral.ts';
-import { TRANSACTION_MAX_PICTURE_COUNT } from '@/consts/transaction.ts';
+import { TRANSACTION_MAX_PICTURE_COUNT, TRANSACTION_MAX_COMMENT_LENGTH, TRANSACTION_COMMENT_HINT_MIN_LENGTH } from '@/consts/transaction.ts';
 
 import { Account, type CategorizedAccountWithDisplayBalance } from '@/models/account.ts';
 import type { TransactionCategory } from '@/models/transaction_category.ts';
@@ -25,6 +26,7 @@ import type { TransactionPictureInfoBasicResponse } from '@/models/transaction_p
 import { Transaction } from '@/models/transaction.ts';
 import { TransactionTemplate } from '@/models/transaction_template.ts';
 import type { LocalizedCurrencyInfo } from '@/core/currency.ts';
+import type { RecognizedTransactionResponse } from '@/models/large_language_model.ts';
 
 import {
     isArray,
@@ -32,6 +34,7 @@ import {
 } from '@/lib/common.ts';
 
 import {
+    parseBigDecimal,
     getExchangedAmountByRate
 } from '@/lib/numeral.ts';
 
@@ -107,6 +110,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         getTimezoneDifferenceDisplayText,
         formatAmountToLocalizedNumeralsWithCurrency,
         formatExchangeRateAmountToWesternArabicNumerals,
+        formatNumberToLocalizedNumerals,
         getAdaptiveAmountRate,
         getCategorizedAccountsWithDisplayBalance
     } = useI18n();
@@ -128,6 +132,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
 
     const clientSessionId = ref<string>('');
     const loading = ref<boolean>(true);
+    const recognizing = ref<boolean>(false);
     const submitting = ref<boolean>(false);
     const submitted = ref<boolean>(false);
     const uploadingPicture = ref<boolean>(false);
@@ -148,6 +153,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     const defaultAccountId = computed<string>(() => userStore.currentUserDefaultAccountId);
     const firstDayOfWeek = computed<WeekDayValue>(() => userStore.currentUserFirstDayOfWeek);
     const coordinateDisplayType = computed<number>(() => userStore.currentUserCoordinateDisplayType);
+    const imageUploadQualityType = computed<ImageUploadQualityType>(() => ImageUploadQualityType.valueOf(settingsStore.appSettings.transactionPictureQuality) ?? ImageUploadQualityType.Default);
 
     const allTimezones = computed<LocalizedTimezoneInfo[]>(() => {
         if (type === TransactionEditPageType.Template && transaction.value instanceof TransactionTemplate) {
@@ -260,13 +266,13 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             return amountName;
         }
 
-        let amountInDefaultCurrency = getExchangedAmountByRate(transaction.value.sourceAmount, fromExchangeRate.rate, toExchangeRate.rate);
+        let amountInDefaultCurrency = getExchangedAmountByRate(parseBigDecimal(transaction.value.sourceAmount), fromExchangeRate.rate, toExchangeRate.rate);
 
         if (!amountInDefaultCurrency) {
             return amountName;
         }
 
-        amountInDefaultCurrency = Math.trunc(amountInDefaultCurrency);
+        amountInDefaultCurrency = amountInDefaultCurrency.truncate();
 
         const displayAmountInDefaultCurrency = getDisplayAmount(amountInDefaultCurrency, transaction.value.hideAmount, defaultCurrency.value);
         return amountName + ` (${displayAmountInDefaultCurrency})`;
@@ -393,7 +399,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         for (const currency of selectableExpenseForeignCurrencies.value) {
             const foreignExchangeRate = exchangeRatesStore.latestExchangeRateMap[currency.currencyCode];
             const convertedRate = sourceExchangeRate?.rate && foreignExchangeRate?.rate
-                ? getExchangedAmountByRate(1, foreignExchangeRate.rate, sourceExchangeRate.rate)
+                ? getExchangedAmountByRate(parseBigDecimal(1), foreignExchangeRate.rate, sourceExchangeRate.rate)
                 : null;
 
             if (convertedRate === null) {
@@ -421,20 +427,20 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             return true;
         }
 
-        return exchangeRatesStore.getExchangedAmount(1, expenseForeignCurrency.value, sourceAccountCurrency.value) === null;
+        return exchangeRatesStore.getExchangedAmount(parseBigDecimal(1), expenseForeignCurrency.value, sourceAccountCurrency.value) === null;
     });
     const convertedExpenseSourceAmount = computed<number | null>(() => {
         if (transaction.value.type !== TransactionType.Expense || expenseAmountInputMode.value !== 'foreign') {
             return null;
         }
 
-        const convertedAmount = exchangeRatesStore.getExchangedAmount(expenseForeignAmount.value, expenseForeignCurrency.value, sourceAccountCurrency.value);
+        const convertedAmount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(expenseForeignAmount.value), expenseForeignCurrency.value, sourceAccountCurrency.value);
 
         if (convertedAmount === null) {
             return null;
         }
 
-        return Math.trunc(convertedAmount);
+        return convertedAmount.truncate().toSafeIntegerNumber();
     });
     const shouldShowExpenseForeignAmountFields = computed<boolean>(() => {
         return transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign';
@@ -444,7 +450,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             return null;
         }
 
-        return `${tt('Converted to')} ${sourceAccountCurrency.value}: ${getDisplayAmount(convertedExpenseSourceAmount.value, transaction.value.hideAmount, sourceAccountCurrency.value)}`;
+        return `${tt('Converted to')} ${sourceAccountCurrency.value}: ${getDisplayAmount(parseBigDecimal(convertedExpenseSourceAmount.value), transaction.value.hideAmount, sourceAccountCurrency.value)}`;
     });
     const expenseAmountInputProblemMessage = computed<string | null>(() => {
         if (expenseForeignAmountExchangeRateMissing.value) {
@@ -496,6 +502,22 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             return tt('Getting Location...');
         } else {
             return tt('No Location');
+        }
+    });
+
+    const transactionDescriptionTitle = computed<string>(() => {
+        if (!transaction.value.comment || transaction.value.comment.length < TRANSACTION_COMMENT_HINT_MIN_LENGTH) {
+            return tt('Description');
+        }
+
+        if (transaction.value.comment.length > TRANSACTION_MAX_COMMENT_LENGTH) {
+            return tt('Description') + ` (${tt('format.misc.charactersOverLimit', {
+                count: formatNumberToLocalizedNumerals(transaction.value.comment.length - TRANSACTION_MAX_COMMENT_LENGTH)
+            })})`;
+        } else {
+            return tt('Description') + ` (${tt('format.misc.charactersRemaining', {
+                count: formatNumberToLocalizedNumerals(TRANSACTION_MAX_COMMENT_LENGTH - transaction.value.comment.length)
+            })})`;
         }
     });
 
@@ -628,7 +650,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             return false;
         }
 
-        if (exchangeRatesStore.getExchangedAmount(1, currency, sourceAccountCurrency.value) === null) {
+        if (exchangeRatesStore.getExchangedAmount(parseBigDecimal(1), currency, sourceAccountCurrency.value) === null) {
             showMessage?.('Missing exchange rate data');
             resetExpenseForeignAmountState();
             return false;
@@ -637,8 +659,8 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         expenseAmountInputMode.value = 'foreign';
         expenseForeignCurrency.value = currency;
 
-        const convertedAmount = exchangeRatesStore.getExchangedAmount(transaction.value.sourceAmount, sourceAccountCurrency.value, currency);
-        expenseForeignAmount.value = convertedAmount !== null ? convertedAmount : transaction.value.sourceAmount;
+        const convertedAmount = exchangeRatesStore.getExchangedAmount(parseBigDecimal(transaction.value.sourceAmount), sourceAccountCurrency.value, currency);
+        expenseForeignAmount.value = convertedAmount !== null ? convertedAmount.truncate().toSafeIntegerNumber() : transaction.value.sourceAmount;
 
         return true;
     }
@@ -647,6 +669,22 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         if (transaction.value.type === TransactionType.Expense && expenseAmountInputMode.value === 'foreign' && expenseForeignCurrency.value) {
             rememberExpenseForeignCurrency(expenseForeignCurrency.value);
         }
+    }
+
+    function updateTransactionModelFromRecognizedResponse(response: RecognizedTransactionResponse): void {
+        const options: SetTransactionOptions = {
+            type: response.type,
+            time: response.time,
+            categoryId: response.categoryId,
+            accountId: response.sourceAccountId,
+            destinationAccountId: response.destinationAccountId,
+            amount: response.sourceAmount,
+            destinationAmount: response.destinationAmount,
+            tagIds: response.tagIds ? response.tagIds.join(',') : undefined,
+            comment: response.comment
+        };
+
+        setTransactionModel(null, options, true);
     }
 
     function updateTransactionModelByAfterSaveAction(afterSaveAction: AfterSaveAction, initOptions?: SetTransactionOptions): void {
@@ -692,7 +730,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         }
     }
 
-    function getDisplayAmount(amount: number, hideAmount: boolean, currencyCode: string): string {
+    function getDisplayAmount(amount: BigDecimal, hideAmount: boolean, currencyCode: string): string {
         if (hideAmount) {
             return formatAmountToLocalizedNumeralsWithCurrency(DISPLAY_HIDDEN_AMOUNT, currencyCode);
         }
@@ -790,6 +828,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         duplicateFromId,
         clientSessionId,
         loading,
+        recognizing,
         submitting,
         submitted,
         uploadingPicture,
@@ -808,6 +847,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         defaultAccountId,
         firstDayOfWeek,
         coordinateDisplayType,
+        imageUploadQualityType,
         allTimezones,
         allAccounts,
         allVisibleAccounts,
@@ -846,6 +886,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         transactionDisplayTimezone,
         transactionTimezoneTimeDifference,
         geoLocationStatusInfo,
+        transactionDescriptionTitle,
         inputEmptyProblemMessage,
         inputIsEmpty,
         // functions
@@ -855,6 +896,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         tryEnableExpenseForeignAmount,
         rememberExpenseForeignCurrency,
         finalizeExpenseForeignAmountSave,
+        updateTransactionModelFromRecognizedResponse,
         updateTransactionModelByAfterSaveAction,
         updateTransactionTime,
         updateTransactionTimezone,
